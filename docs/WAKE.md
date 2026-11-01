@@ -54,6 +54,36 @@ once in the foreground to diagnose audio setup. Background and foreground
 processes may have separate permission attribution; foreground success alone
 does not verify background microphone access.
 
+### Commands are heard but do not respond
+
+On a MacBook, check the selected microphone as well as transcription. An external
+headset input can capture sound without reliably recognizing the wake phrase.
+If Brodi's activity never shows your command, try the built-in microphone while
+keeping replies on your system's selected headphones.
+
+The working configuration from the MacBook live test is saved in
+[`config.macbook.example.yaml`](../config.macbook.example.yaml). To apply the same
+settings to an existing installation, update these keys in `.env.local`:
+
+```dotenv
+BRODI_STT_MODEL=gpt-transcribe
+BRODI_STT_SILENCE_MS=400
+BRODI_INPUT_DEVICE=MacBook Air Microphone
+```
+
+This uses cloud speech boundaries instead of the local volume threshold that can
+keep a turn open in background noise. The microphone name is specific to a
+MacBook Air; choose an available input on other computers. Audio output continues
+to use the system default unless `BRODI_OUTPUT_DEVICE` is configured separately.
+Keep your API key in the ignored `.env.local` file. YAML presets do not override
+existing environment or `.env` settings.
+
+Restart with `./brody restart`, then say **"Hey Brodi, open Chrome"** and pause.
+The live check recognized the request, opened Chrome, and returned **"Got it."**
+After the 20-second follow-up window expires, include the wake phrase again;
+restarting Brodi also resets that window. Login startup remains enabled across
+restarts.
+
 ## Implementation and verification
 
 Windows installs a checkout-specific, current-user `Run` registry value pointing

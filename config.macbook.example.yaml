@@ -1,0 +1,7 @@
+# Working MacBook voice setup: built-in microphone, system-default audio output.
+# Copy these values into brodi.yaml, or use this file with BRODI_CONFIG.
+# Environment variables and .env.local/.env values take precedence over YAML.
+# Keep OPENAI_API_KEY in .env.local; never add it to this file.
+BRODI_STT_MODEL: gpt-transcribe
+BRODI_STT_SILENCE_MS: 400
+BRODI_INPUT_DEVICE: MacBook Air Microphone
