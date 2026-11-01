@@ -114,7 +114,7 @@ BLOCKED_APPLESCRIPT = [
     (re.compile(r"with administrator privileges", re.I), "administrator privileges"),
     (re.compile(r"\bpassword\b", re.I), "password handling"),
     (re.compile(r"\bshut\s*down\b|\brestart\b|\blog\s*out\b", re.I), "power/session control"),
-    (re.compile(r"\bto sleep\b|\bsleep\b(?!\s*\()", re.I), "putting the Mac to sleep"),
+    (re.compile(r"\bto sleep\b|(?<![\w-])sleep\b(?!\s*\()", re.I), "putting the Mac to sleep"),
     (re.compile(r"\bempty\s+(the\s+)?trash\b", re.I), "emptying the trash"),
     (re.compile(r"\bdelete\b|\bmove\s+(to\s+)?trash\b", re.I), "deleting items"),
     (re.compile(r"\bmove\b(?!\s+(to\s+)?(the\s+)?(front|back|top|bottom))", re.I), "moving files"),

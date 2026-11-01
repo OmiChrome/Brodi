@@ -166,9 +166,11 @@ def test_search_start_urls():
     assert start_url_for("amazon", "x", None) == "https://www.amazon.com/"
 
 
-def test_flights_start_url_uses_natural_language_query():
+def test_flights_start_url_uses_natural_language_query(monkeypatch):
+    from brodi import browser_task
     from brodi.browser_task import start_url_for
 
+    monkeypatch.setattr(browser_task, "_compact_flight_query", lambda text: "")
     goal = "find me flights from Paris to Japan\nAdditional details from the user: leave Nov 2, return Nov 7, Tokyo"
     url = start_url_for("google_flights", goal)
     assert url.startswith("https://www.google.com/travel/flights?hl=en&q=")

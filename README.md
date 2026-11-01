@@ -76,12 +76,40 @@ cp .env.example .env.local   # OPENAI_API_KEY is the only required secret
 
 ## Run
 
+On Windows, double-click `brodi.cmd` or run `.\brodi.cmd start`. It uses the project's
+installed Python environment when available. Say **"Hey bro"** or **"Yo bro"** to activate
+voice control, then give a command within 20 seconds. You can also combine them:
+
+- "Hey bro, open Chrome."
+- "Yo bro, open Notepad."
+- "Hey bro, go to YouTube."
+- "Search YouTube for lofi beats."
+- "Open my Google Keep and show the top note."
+
+"Hey bro" by itself replies "Hey bro, I'm listening." "Search YouTube" asks what to
+search for; answer with the topic, or say "cancel". During the active window, short
+commands work without repeating the wake phrase. After a task finishes, the window starts
+again. Set `BRODI_WAKE_WINDOW_S` to change its length, or `BRODI_WAKE_REQUIRED=0` for
+always-active voice control. Wake activation happens after transcription; the microphone
+and OpenAI transcription stay active while Brodi runs. It is not an offline wake-word detector.
+
+Opening apps and websites and simple searches use deterministic routing. Google Keep note
+tasks use the browser agent and need an already signed-in Chrome profile and remote debugging
+enabled at `chrome://inspect/#remote-debugging`. Brodi discovers Chrome's local debugging
+port automatically, or uses `BRODI_CDP_URL` when explicitly set. If access is unavailable,
+it opens the Keep homepage and explains the setup step instead of claiming the note was opened.
+Run `brodi doctor` (or `python -m brodi.cli --doctor`) to check the API key, Chrome,
+browser connection, and policy. The diagnostic never prints the key or reads notes.
+Project settings load from `.env.local`, followed by `.env`, before runtime defaults
+are imported; existing environment variables take precedence.
+
 ```bat
 brodi start        :: Windows 11: detached voice assistant, local mic and speaker
 brodi status       :: is it still running, and for how long
 brodi log          :: transcripts, routes, errors
 brodi stop
 brodi restart
+brodi doctor       :: check setup without recording audio or calling a model
 ```
 
 `brodi.cmd` forwards to `console.ps1`, so no LiveKit server or cloud account is involved —
@@ -147,8 +175,21 @@ for Windows, and what to `speak` afterwards. See the existing entries.
 ## Development
 
 ```bash
-uv run pytest -q                                  # 80 offline tests
+uv run pytest -q                                  # offline tests, including short voice commands
 uv run ruff check . && uv run ruff format --check .
 ```
+
+Real Chrome input and navigation tests use a separate headless profile and local fixture
+pages. They do not use your signed-in browser, microphone, or paid APIs. On PowerShell:
+
+```powershell
+$env:BRODI_CHROME_TESTS = '1'
+.\.venv\Scripts\python.exe -m pytest -q
+Remove-Item Env:BRODI_CHROME_TESTS
+```
+
+These tests cover replacing field text, submitting a search, opening a note card, and
+operating checkboxes. They complement live account checks; a fixture note is not a test
+of access to your real Google Keep account.
 
 MIT, see [LICENSE](LICENSE).

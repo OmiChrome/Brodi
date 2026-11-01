@@ -21,6 +21,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["chrome: real Chrome tests in an isolated headless profile (opt in with BRODI_CHROME_TESTS=1)"]
 
 [tool.ruff]
 line-length = 120

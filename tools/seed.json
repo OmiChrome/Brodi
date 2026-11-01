@@ -48,7 +48,7 @@
       "launch Spotify"
     ],
     "not_for": "Websites, URLs, web searches, or anything the user says to do 'in the browser' or 'from the browser'; those belong to a browser tool (safari_open / chrome_open).",
-    "script_win": "$app = \"{{app}}\"; $chrome = Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe'; if (-not (Test-Path $chrome)) { $chrome = Join-Path $env:LOCALAPPDATA 'Google/Chrome/Application/chrome.exe' }; if ($app -eq 'Google Chrome') { if (Test-Path $chrome) { Start-Process $chrome \"--profile-directory={{chrome_profile}}\" } else { Start-Process 'https://www.google.com' }; \"$app opened\"; exit 0 }; $menus = @((Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs'), (Join-Path $env:AppData 'Microsoft/Windows/Start Menu/Programs')); $lnk = Get-ChildItem $menus -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $app } | Select-Object -First 1; if (-not $lnk) { $lnk = Get-ChildItem $menus -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -like \"$app*\" } | Select-Object -First 1 }; if ($lnk) { Start-Process $lnk.FullName; \"$app opened\"; exit 0 }; $alias = Join-Path $env:LOCALAPPDATA ('Microsoft/WindowsApps/' + $app + '.exe'); if (Test-Path $alias) { Start-Process $alias; \"$app opened\"; exit 0 }; $exe = Get-Command $app -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1; if ($exe) { Start-Process $exe.Source; \"$app opened\"; exit 0 }; Write-Error \"$app is not installed.\""
+    "script_win": "$app = \"{{app}}\"\n$ws = New-Object -ComObject WScript.Shell\nif ($app -eq 'Google Chrome') {\n  $chrome = @((Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe'), (Join-Path ${env:ProgramFiles(x86)} 'Google/Chrome/Application/chrome.exe'), (Join-Path $env:LOCALAPPDATA 'Google/Chrome/Application/chrome.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1\n  if (-not $chrome) { $chrome = (Get-Command chrome.exe -ErrorAction SilentlyContinue).Source }\n  if (-not $chrome) { throw 'Google Chrome is not installed.' }\n  $launchArgs = @('\"--profile-directory={{chrome_profile}}\"')\n  if (\"{{chrome_home}}\") { $launchArgs += '\"{{chrome_home}}\"' }\n  Start-Process -FilePath $chrome -ArgumentList $launchArgs\n} elseif ($app -eq 'Notepad') {\n  Start-Process notepad.exe\n} elseif ($app -eq 'Microsoft Edge') {\n  Start-Process msedge.exe\n} else {\n  $menus = @((Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs'), (Join-Path $env:AppData 'Microsoft/Windows/Start Menu/Programs'))\n  $lnk = Get-ChildItem $menus -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $app } | Select-Object -First 1\n  if ($lnk) { Start-Process -FilePath $lnk.FullName }\n  else {\n    $exe = Get-Command $app -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1\n    if (-not $exe) { throw \"$app is not installed.\" }\n    Start-Process -FilePath $exe.Source\n  }\n}\nStart-Sleep -Milliseconds 400\n$null = $ws.AppActivate($app)\n\"$app opened\""
   },
   {
     "name": "quit_app",
@@ -289,7 +289,7 @@
   {
     "name": "chrome_open",
     "description": "Open a well-known site (YouTube, Gmail, Google Calendar, GitHub...), a URL, or a web search in a new Google Chrome tab.",
-    "scope": "Google Chrome",
+    "scope": null,
     "args": [
       {
         "name": "site",
@@ -325,7 +325,9 @@
           "gradium": "gradium.ai",
           "typesafe": "typesafe.ai",
           "outlook": null,
-          "whatsapp_web": "WhatsApp Web"
+          "whatsapp_web": "WhatsApp Web",
+          "google": "Google Search",
+          "google_keep": "Google Keep notes"
         },
         "default": "other"
       },
@@ -336,7 +338,7 @@
         "default": ""
       }
     ],
-    "script": "set site to \"{{site}}\"\nset q to \"{{query}}\"\n-- a phrase beyond the site name itself means: search within that site\nset siteWord to site\nset AppleScript's text item delimiters to \"_\"\nset siteWord to (text items of site) as text\nset AppleScript's text item delimiters to \" \"\nset enc to (text items of q) as text\nset AppleScript's text item delimiters to \"+\"\nset enc to (text items of enc) as text\nset AppleScript's text item delimiters to \"\"\nset hasPhrase to (q is not \"\") and (q does not contain siteWord)\nif site is \"other\" then\n  if q contains \".\" and q does not contain \" \" then\n    if q does not start with \"http\" then set q to \"https://\" & q\n  else\n    set q to \"https://www.google.com/search?q=\" & enc\n  end if\n  else if site is \"youtube\" then\n    if hasPhrase then\n      set q to \"https://www.youtube.com/results?search_query=\" & enc\n    else\n      set q to \"https://www.youtube.com\"\n    end if\n  else if site is \"gmail\" then\n    if hasPhrase then\n      set q to \"https://mail.google.com/mail/#search/\" & enc\n    else\n      set q to \"https://mail.google.com\"\n    end if\n  else if site is \"google_calendar\" then\n    set q to \"https://calendar.google.com\"\n  else if site is \"google_drive\" then\n    if hasPhrase then\n      set q to \"https://drive.google.com/drive/search?q=\" & enc\n    else\n      set q to \"https://drive.google.com\"\n    end if\n  else if site is \"google_docs\" then\n    set q to \"https://docs.google.com\"\n  else if site is \"google_maps\" then\n    if hasPhrase then\n      set q to \"https://www.google.com/maps/search/\" & enc\n    else\n      set q to \"https://maps.google.com\"\n    end if\n  else if site is \"github\" then\n    if hasPhrase then\n      set q to \"https://github.com/search?q=\" & enc\n    else\n      set q to \"https://github.com\"\n    end if\n  else if site is \"x_twitter\" then\n    if hasPhrase then\n      set q to \"https://x.com/search?q=\" & enc\n    else\n      set q to \"https://x.com\"\n    end if\n  else if site is \"linkedin\" then\n    if hasPhrase then\n      set q to \"https://www.linkedin.com/search/results/all/?keywords=\" & enc\n    else\n      set q to \"https://www.linkedin.com\"\n    end if\n  else if site is \"notion\" then\n    set q to \"https://www.notion.so\"\n  else if site is \"slack_web\" then\n    set q to \"https://app.slack.com\"\n  else if site is \"figma\" then\n    set q to \"https://www.figma.com\"\n  else if site is \"chatgpt\" then\n    set q to \"https://chatgpt.com\"\n  else if site is \"claude\" then\n    set q to \"https://claude.ai\"\n  else if site is \"reddit\" then\n    if hasPhrase then\n      set q to \"https://www.reddit.com/search/?q=\" & enc\n    else\n      set q to \"https://www.reddit.com\"\n    end if\n  else if site is \"wikipedia\" then\n    if hasPhrase then\n      set q to \"https://en.wikipedia.org/w/index.php?search=\" & enc\n    else\n      set q to \"https://www.wikipedia.org\"\n    end if\n  else if site is \"amazon\" then\n    if hasPhrase then\n      set q to \"https://www.amazon.com/s?k=\" & enc\n    else\n      set q to \"https://www.amazon.com\"\n    end if\n  else if site is \"netflix\" then\n    if hasPhrase then\n      set q to \"https://www.netflix.com/search?q=\" & enc\n    else\n      set q to \"https://www.netflix.com\"\n    end if\n  else if site is \"spotify_web\" then\n    if hasPhrase then\n      set q to \"https://open.spotify.com/search/\" & enc\n    else\n      set q to \"https://open.spotify.com\"\n    end if\n  else if site is \"hacker_news\" then\n    set q to \"https://news.ycombinator.com\"\n  else if site is \"stack_overflow\" then\n    if hasPhrase then\n      set q to \"https://stackoverflow.com/search?q=\" & enc\n    else\n      set q to \"https://stackoverflow.com\"\n    end if\n  else if site is \"hugging_face\" then\n    if hasPhrase then\n      set q to \"https://huggingface.co/search/full-text?q=\" & enc\n    else\n      set q to \"https://huggingface.co\"\n    end if\n  else if site is \"linear\" then\n    set q to \"https://linear.app\"\n  else if site is \"vercel\" then\n    set q to \"https://vercel.com\"\n  else if site is \"livekit\" then\n    set q to \"https://docs.livekit.io\"\n  else if site is \"gradium\" then\n    set q to \"https://gradium.ai\"\n  else if site is \"typesafe\" then\n    set q to \"https://typesafe.ai\"\n  else if site is \"outlook\" then\n    set q to \"https://outlook.live.com\"\n  else if site is \"whatsapp_web\" then\n    set q to \"https://web.whatsapp.com\"\nend if\ndo shell script \"open -na 'Google Chrome' --args \" & quoted form of (\"--profile-directory=\" & \"{{chrome_profile}}\") & \" \" & quoted form of q\nrepeat 15 times\n  delay 0.2\n  tell application \"System Events\" to set frontName to name of first application process whose frontmost is true\n  if frontName is \"Google Chrome\" then exit repeat\n  try\n    tell application \"System Events\" to set frontmost of process \"Google Chrome\" to true\n  end try\nend repeat\ntry\n  tell application \"Google Chrome\"\n    if (count of windows) = 0 then reopen\n  end tell\nend try\nif frontName is \"Google Chrome\" then return q\nreturn q",
+    "script": "set q to \"{{browser_url}}\"\ndo shell script \"open -na 'Google Chrome' --args \" & quoted form of (\"--profile-directory=\" & \"{{chrome_profile}}\") & \" \" & quoted form of q\nreturn q",
     "speak": "done",
     "examples": [
       "open github dot com",
@@ -345,7 +347,7 @@
       "search for weather in Paris",
       "search youtube for the love hypothesis"
     ],
-    "script_win": "$site = \"{{site}}\"; $q = \"{{query}}\".Trim(); $chrome = Join-Path $env:ProgramFiles 'Google\\Chrome\\Application\\chrome.exe'; if (-not (Test-Path $chrome)) { $chrome = Join-Path $env:LOCALAPPDATA 'Google\\Chrome\\Application\\chrome.exe' }; if (-not (Test-Path $chrome)) { $chrome = 'chrome.exe' }; $base = @{ youtube = 'https://www.youtube.com/results?search_query='; github = 'https://github.com/search?q='; amazon = 'https://www.amazon.com/s?k='; wikipedia = 'https://en.wikipedia.org/w/index.php?search='; google = 'https://www.google.com/search?q='; reddit = 'https://www.reddit.com/search/?q='; stack_overflow = 'https://stackoverflow.com/search?q='; x_twitter = 'https://x.com/search?q='; hacker_news = 'https://hn.algolia.com/?q='; hugging_face = 'https://huggingface.co/search/full-text?q=' }[$site]; if ($q -match '^https?://') { $url = $q } elseif ($q -match '^[a-z0-9-]+(\\.[a-z0-9-]+)+(/\\S*)?$') { $url = 'https://' + $q } elseif ($base -and $q -and $q.ToLower() -ne $site.Replace('_', ' ')) { $url = $base + [uri]::EscapeDataString($q) } elseif ($base) { $url = $base } else { $url = 'https://www.google.com/search?q=' + [uri]::EscapeDataString($site + ' ' + $q) }; Start-Process $chrome \"--profile-directory={{chrome_profile}}\", $url; 'opened'"
+    "script_win": "$chrome = @((Join-Path $env:ProgramFiles 'Google/Chrome/Application/chrome.exe'), (Join-Path ${env:ProgramFiles(x86)} 'Google/Chrome/Application/chrome.exe'), (Join-Path $env:LOCALAPPDATA 'Google/Chrome/Application/chrome.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1\nif (-not $chrome) { $chrome = (Get-Command chrome.exe -ErrorAction SilentlyContinue).Source }\nif (-not $chrome) { throw 'Chrome is not installed. Install Chrome to open websites.' }\n$url = \"{{browser_url}}\"\nStart-Process -FilePath $chrome -ArgumentList @('\"--profile-directory={{chrome_profile}}\"', $url)\n$url"
   },
   {
     "name": "youtube_play",
@@ -399,7 +401,8 @@
           "other": "Any other website",
           "google_flights": "Google Flights: searching or comparing flights, airfares, travel dates",
           "google_maps": "Google Maps: places, directions, addresses",
-          "google_shopping": "Shopping for a product or comparing prices across stores when no specific retailer is named"
+          "google_shopping": "Shopping for a product or comparing prices across stores when no specific retailer is named",
+          "google_keep": "Google Keep: open or read notes"
         }
       }
     ],
@@ -409,7 +412,8 @@
       "go to amazon and search for the best vacuum cleaner and add it to my cart",
       "on gmail draft an email to alex saying the demo is at 3",
       "find me cheap flights from paris to tokyo in october",
-      "open linkedin and accept my pending connection requests"
+      "open linkedin and accept my pending connection requests",
+      "open my Google Keep and show the top note"
     ],
     "not_for": "Just opening a site or a plain search (chrome_open); playing a YouTube video (youtube_play); managing tabs or windows: closing, switching, reloading, going back (chrome_* / safari_* tools)."
   },

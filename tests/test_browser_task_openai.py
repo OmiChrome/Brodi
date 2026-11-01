@@ -155,3 +155,46 @@ def test_blocked_operation_stops_cleanly():
     result = run_task_sync("https://shop.test/", "sign in", cdp=cdp, decisions=LoopDecisions(["blocked"]))
     assert result.status == "blocked"
     assert result.steps == 1
+
+
+def test_multistep_browser_uses_one_async_loop_and_closes_client(monkeypatch):
+    loops = []
+    closed = []
+
+    class LoopBoundClient(LoopDecisions):
+        def __init__(self):
+            super().__init__(["click", "done"])
+
+        async def evaluate(self, **kwargs):
+            loops.append(asyncio.get_running_loop())
+            return await super().evaluate(**kwargs)
+
+        async def aclose(self):
+            closed.append(asyncio.get_running_loop())
+
+    monkeypatch.setattr(browser_task, "DecisionsClient", LoopBoundClient)
+    result = run_task_sync("https://shop.test/", "open the result", cdp=FakeCDP())
+    assert result.status == "done"
+    assert len(loops) == 2 and loops[0] is loops[1]
+    assert closed == [loops[0]] and loops[0].is_closed()
+
+
+def test_changing_target_reobserves_without_sending_input(monkeypatch):
+    cdp = FakeCDP()
+    points = iter([None, {"x": 10, "y": 20}])
+    monkeypatch.setattr(browser_task, "_element_point", lambda *args: next(points))
+    result = run_task_sync(
+        "https://shop.test/", "Open search", cdp=cdp, decisions=LoopDecisions(["click", "click", "done"])
+    )
+    assert result.status == "done"
+    assert result.history[0]["operation"] == "observe_again"
+    assert len([c for c in cdp.calls if c[0] == "Input.dispatchMouseEvent"]) == 2
+
+
+def test_closed_followup_tab_navigates_replacement_instead_of_waiting_on_blank():
+    cdp = FakeCDP()
+    result = run_task_sync(
+        "https://shop.test/", "Continue search", reuse_target="missing-tab", cdp=cdp, decisions=LoopDecisions(["done"])
+    )
+    assert result.status == "done"
+    assert any(c[0] == "Page.navigate" and c[2]["url"] == "https://shop.test/" for c in cdp.calls)

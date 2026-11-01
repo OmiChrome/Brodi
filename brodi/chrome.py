@@ -36,6 +36,20 @@ def local_state_path(
 def find_chrome_executable(platform: str | None = None, env: Mapping[str, str] | None = None) -> str:
     """Path to chrome.exe on Windows 11 (first existing install), else the best guess."""
     env = os.environ if env is None else env
+    host = platform or env.get("BRODI_OS") or sys.platform
+    if host == "darwin":
+        candidates = [
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+        return str(next((path for path in candidates if path.is_file()), candidates[0]))
+    if not host.startswith("win"):
+        return (
+            shutil.which("google-chrome")
+            or shutil.which("google-chrome-stable")
+            or shutil.which("chromium")
+            or "google-chrome"
+        )
     candidates = []
     for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
         base = env.get(key)

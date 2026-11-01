@@ -1,7 +1,7 @@
 # brodi console (Windows 11): start / stop / status / log / restart
 # Usage: brodi start        (brodi.cmd on PATH calls this)
 #        .\console.ps1 start
-param([ValidateSet("start", "stop", "status", "log", "restart")][string]$Action = "status")
+param([ValidateSet("start", "stop", "status", "log", "restart", "doctor")][string]$Action = "start")
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -10,7 +10,7 @@ $Log = if ($env:BRODI_LOG) { $env:BRODI_LOG } else { Join-Path $env:TEMP "brodi-
 function Get-BrodiProcess {
     # uv is the launcher; python is the actual agent. Both carry "agent.py console".
     Get-CimInstance Win32_Process |
-        Where-Object { $_.CommandLine -like "*agent.py console*" -and $_.Name -match "^(python|uv)" }
+        Where-Object { $_.CommandLine -like "*agent.py*console*" -and $_.CommandLine -like "*$PSScriptRoot*" -and $_.Name -match "^(python|uv)" }
 }
 
 function Import-DotEnv([string]$Path) {
@@ -45,7 +45,13 @@ function Start-Brodi {
     }
 
     # One log file, raw bytes: cmd redirection keeps the agent's own encoding and merges stderr.
-    $inner = "/c cd /d `"$PSScriptRoot`" && uv run python agent.py console >> `"$Log`" 2>&1"
+    $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    if (Test-Path -LiteralPath $python) {
+        $launch = "`"$python`" `"$PSScriptRoot\agent.py`" console"
+    } else {
+        $launch = "uv run python `"$PSScriptRoot\agent.py`" console"
+    }
+    $inner = "/c cd /d `"$PSScriptRoot`" && $launch >> `"$Log`" 2>&1"
     $wrapper = Start-Process -FilePath "cmd.exe" `
         -ArgumentList $inner -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 4
@@ -61,6 +67,12 @@ function Start-Brodi {
 }
 
 switch ($Action) {
+    "doctor" {
+        $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+        if (Test-Path -LiteralPath $python) { & $python -m brodi.cli --doctor }
+        else { & uv run python -m brodi.cli --doctor }
+        exit $LASTEXITCODE
+    }
     "start" { Start-Brodi }
     "stop" { Stop-Brodi }
     "restart" { Stop-Brodi; Start-Brodi }
@@ -79,6 +91,6 @@ switch ($Action) {
         if (-not (Test-Path $Log)) { "no log at $Log"; exit 1 }
         Get-Content $Log -Tail 300 |
             ForEach-Object { $_ -replace "\x1b\[[0-9;?]*[A-Za-z]", "" } |
-            Where-Object { $_ -match "route|transcript|assistant|agent>|ERROR|learned|failed|pipeline:" }
+            Where-Object { $_ -match "route|transcript|assistant|agent>|ERROR|learned|failed|pipeline:|brodi.voice\s+turn" }
     }
 }

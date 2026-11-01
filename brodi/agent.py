@@ -10,14 +10,16 @@ AWAITING_CONFIRM    -> a risky tool is staged; the Decisions API judges whether
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from . import browser_task, policy, resolvers
+from . import browser_task, commands, policy, resolvers
 from .applescript import ContextPoller, run_applescript
 from .generator import DUPLICATE, ToolGenerator
 from .registry import Tool, ToolRegistry
@@ -32,6 +34,7 @@ FORBIDDEN_THRESHOLD = 0.6  # p(goal requires buying/paying/signing in) at or abo
 ACHIEVED_THRESHOLD = 0.5  # p(final page shows the success criterion); below: one more round, then be honest
 BROWSER_MEMORY_S = 15 * 60  # how long a finished browser task stays "recent" for follow-ups
 ARG_CONFIDENCE_FLOOR = 0.35  # weakest argument below this -> ask instead of act
+PENDING_TTL_S = 60
 
 
 PRONOUNS = {
@@ -91,6 +94,8 @@ class DynamicMacAgent:
         self.generator = ToolGenerator(self.registry, decisions=self.router.client) if enable_learning else None
         self.state = State.IDLE
         self.pending: Pending | None = None
+        self.pending_question: tuple[Route, float] | None = None
+        self._turn_lock = asyncio.Lock()
         self.context = ContextPoller()
         self.last_browser: dict[str, Any] | None = None  # goal, url, title, target_id, finished_at
         self.last_args: dict[str, dict[str, str]] = {}  # tool name -> last used arguments (for "send her another")
@@ -107,17 +112,59 @@ class DynamicMacAgent:
 
     # ----------------------------------------------------------------- public
     async def handle(self, utterance: str) -> Outcome:
-        utterance = utterance.strip()
+        # A second transcript must not race a running browser task or consume its confirmation.
+        async with self._turn_lock:
+            try:
+                return await self._handle(utterance)
+            except Exception:
+                log.exception("command failed")
+                self.pending, self.pending_question, self.state = None, None, State.IDLE
+                return Outcome(speak="That didn't work. Please try again.")
+
+    async def _handle(self, utterance: str) -> Outcome:
+        utterance, wake = commands.normalize(utterance)
         if not utterance:
-            return Outcome(handoff_to_llm=False)
+            return Outcome(speak="Hey bro, I'm listening." if wake else None)
+        if self.pending and time.time() - self.pending.staged_at > PENDING_TTL_S:
+            self.pending, self.state = None, State.IDLE
+            if utterance.lower().rstrip(".!?") in {"yes", "sure", "go ahead", "do it"}:
+                return Outcome(speak="That confirmation expired. Tell me the command again.")
         t0 = time.perf_counter()
         ctx = await self.context.latest()
         t_ctx = time.perf_counter()
 
         recent = self._recent_browser()
-        route = await self.router.route(
-            utterance, ctx, awaiting_confirmation=self.state is State.AWAITING_CONFIRM, recent_browser=recent
-        )
+        route = None
+        if self.pending_question:
+            question, asked_at = self.pending_question
+            self.pending_question = None
+            if utterance.lower().rstrip(".!?") in {"cancel", "never mind", "nevermind", "no"}:
+                return Outcome(speak="Cancelled.")
+            if (
+                time.time() - asked_at <= PENDING_TTL_S
+                and commands.parse_command(utterance, ctx.running_apps + ctx.installed_apps) is None
+                and not re.match(r"^(?:open|launch|start|stop|quit|go to|search)\b", utterance, re.I)
+            ):
+                spec = (
+                    next((a for a in question.tool.args if a.name == question.missing_arg), None)
+                    if question.tool
+                    else None
+                )
+                answer = utterance
+                if spec and spec.kind == "enum":
+                    choices = spec.resolve_criteria(ctx)
+                    answer = next((c for c in choices if c.lower() == utterance.lower().rstrip(".!?")), "")
+                    if not answer:
+                        self.pending_question = (question, asked_at)
+                        return Outcome(speak=f"Which {spec.name}? Choose from {', '.join(list(choices)[:8])}.")
+                question.args[question.missing_arg] = answer
+                question.weakest_arg = None
+                question.kind, question.reply, question.missing_arg = "tool", "", ""
+                route = question
+        if route is None:
+            route = await self.router.route(
+                utterance, ctx, awaiting_confirmation=self.state is State.AWAITING_CONFIRM, recent_browser=recent
+            )
         # A follow-up to the browser task wins over whatever else Jev matched (often a mis-scoped web_task).
         if (
             recent
@@ -163,6 +210,12 @@ class DynamicMacAgent:
         t_route = time.perf_counter()
         outcome = Outcome(route=route, timings={"context_ms": (t_ctx - t0) * 1e3, "route_ms": (t_route - t_ctx) * 1e3})
 
+        if route.kind in {"greeting", "clarify"}:
+            outcome.speak = route.reply
+            if route.kind == "clarify":
+                self.pending_question = (route, time.time())
+            return outcome
+
         if self.state is State.AWAITING_CONFIRM and self.pending:
             if route.is_confirmation >= CONFIRM_THRESHOLD and route.is_confirmation > route.is_denial:
                 pending, self.pending, self.state = self.pending, None, State.IDLE
@@ -200,14 +253,20 @@ class DynamicMacAgent:
             return outcome
 
         if route.kind == "tool" and route.tool:
+            if (
+                route.tool.runner == "browser"
+                and route.weakest_arg
+                and route.weakest_arg[0] == "site"
+                and route.weakest_arg[1] < ARG_CONFIDENCE_FLOOR
+            ):
+                route.args["site"] = "current_tab" if recent else "google"
+                route.weakest_arg = None
             if route.weakest_arg and route.weakest_arg[1] < ARG_CONFIDENCE_FLOOR:
                 name, _ = route.weakest_arg
                 outcome.speak = f"Which {name} did you mean? I heard {route.args.get(name, 'nothing')}."
-                self._stage(route.tool, route.args)
+                route.missing_arg = name
+                self.pending_question = (route, time.time())
                 return outcome
-            if route.tool.runner == "browser" and route.weakest_arg and route.weakest_arg[1] < ARG_CONFIDENCE_FLOOR:
-                route.args["site"] = "current_tab" if recent else "google"  # never ask "which site"; just go
-                route.weakest_arg = None
             if route.tool.runner == "browser":
                 refusal = _browser_refusal(utterance, route.web_goal_forbidden)
                 if refusal:
@@ -290,10 +349,24 @@ class DynamicMacAgent:
             outcome.speak = refusal
             return
         site = args.get("site", "other")
+        access_error = await asyncio.to_thread(browser_task.access_error)
+        if access_error:
+            outcome.speak = access_error
+            # At least show the requested site when note interaction is unavailable.
+            if site == "google_keep" and (opener := self.registry.get("chrome_open")):
+                opened = Outcome()
+                await self._execute(opener, {"site": site, "query": ""}, opened)
+                prefix = (
+                    "I opened Google Keep, but couldn't show the note. "
+                    if opened.executed
+                    else (opened.speak or "") + " "
+                )
+                outcome.speak = prefix + access_error
+            return
         recent = self._recent_browser()
         lb = self.last_browser or {}
         reuse = None
-        if site == "current_tab" and recent and browser_task.tab_exists(lb.get("target_id")):
+        if site == "current_tab" and recent and await asyncio.to_thread(browser_task.tab_exists, lb.get("target_id")):
             reuse = lb.get("target_id")
         if site == "current_tab":
             site = lb.get("site") or "google"
@@ -338,7 +411,11 @@ class DynamicMacAgent:
                 result.status = "done"
         if result.status == "done" and success:
             achieved = await self._verify_outcome(objective, success, result)
-            if achieved is not None and achieved < ACHIEVED_THRESHOLD and browser_task.tab_exists(result.target_id):
+            if (
+                achieved is not None
+                and achieved < ACHIEVED_THRESHOLD
+                and await asyncio.to_thread(browser_task.tab_exists, result.target_id)
+            ):
                 log.info("outcome not confirmed (%.2f); one more round", achieved)
                 nudge = goal + f"\nNOT yet achieved: the page does not show {success}. Keep going from here."
                 result = await browser_task.run_task(
@@ -493,7 +570,7 @@ class DynamicMacAgent:
                     return
             outcome.timings["resolve_ms"] = (time.perf_counter() - t_r) * 1e3
         script = tool.render(args)
-        violations = policy.check(script, tool.scope)
+        violations = policy.check(script, tool.active_scope)
         if violations:
             log.warning("policy blocked %s(%s): %s", tool.name, args, "; ".join(map(str, violations)))
             outcome.speak = f"{prefix}I can't do that. Voice control isn't allowed to {_say_violation(violations[0])}."

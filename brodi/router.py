@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import os_backend
+from . import commands, os_backend
 from .applescript import MacContext
 from .decisions import ChoiceQuestion, DecisionsClient, PredicateQuestion
 from .registry import MAX_CHOICE_OPTIONS, Tool, ToolRegistry
@@ -47,6 +47,8 @@ class Route:
     web_goal_missing: str = "nothing"  # what a clarifying question should ask for
     latency_ms: float = 0.0
     weakest_arg: tuple[str, float] | None = None
+    reply: str = ""
+    missing_arg: str = ""
 
     @property
     def summary(self) -> str:
@@ -91,6 +93,21 @@ class JevRouter:
         recent_browser: dict[str, str] | None = None,
     ) -> Route:
         t0 = time.perf_counter()
+        # Exact common requests are deterministic; confirmations still use the pending-action gates.
+        normalized, _ = commands.normalize(utterance)
+        local = commands.parse_command(utterance, ctx.running_apps + ctx.installed_apps)
+        if local and not awaiting_confirmation:
+            tool = self.registry.get(local.tool) if local.tool else None
+            if not local.tool or (tool is not None and tool.is_available(ctx)):
+                return Route(
+                    kind="clarify" if local.missing else ("tool" if tool else "greeting"),
+                    tool=tool,
+                    args=local.args,
+                    confidence=1.0,
+                    reply=local.reply,
+                    missing_arg=local.missing,
+                )
+        utterance = normalized
         tools = self.registry.available(ctx)
         criteria: dict[str, Any] = {}
         for t in tools[: MAX_CHOICE_OPTIONS - 2]:

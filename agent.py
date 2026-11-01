@@ -12,17 +12,21 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
-from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import Agent, AgentServer, AgentSession, StopResponse, get_job_context, llm
 from livekit.plugins import openai as lk_openai
+from openai.types.realtime import AudioTranscription
+from openai.types.realtime.realtime_audio_input_turn_detection import SemanticVad
 
-from brodi import policy
-from brodi.agent import DynamicMacAgent
+from brodi.config import load_environment
 
-load_dotenv(".env.local")
-load_dotenv()
+load_environment()
+
+from brodi import policy  # noqa: E402
+from brodi.agent import PENDING_TTL_S, DynamicMacAgent  # noqa: E402
+from brodi.voice import VoiceGate  # noqa: E402
 
 log = logging.getLogger("brodi.voice")
 
@@ -44,13 +48,26 @@ class BrodiAgent(Agent):
     def __init__(self, mac: DynamicMacAgent) -> None:
         super().__init__(instructions=INSTRUCTIONS)
         self.mac = mac
+        self.activation = VoiceGate(
+            required=os.environ.get("BRODI_WAKE_REQUIRED", "1") != "0",
+            window_s=float(os.environ.get("BRODI_WAKE_WINDOW_S", "20")),
+        )
 
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
         text = new_message.text_content or ""
         if not text.strip():
             raise StopResponse()
 
+        pending = bool(self.mac.pending and time.time() - self.mac.pending.staged_at <= PENDING_TTL_S)
+        pending = pending or bool(
+            self.mac.pending_question and time.time() - self.mac.pending_question[1] <= PENDING_TTL_S
+        )
+        if not self.activation.accepts(text, pending=pending):
+            log.debug("ignoring speech while waiting for a wake phrase")
+            raise StopResponse()
+
         outcome = await self.mac.handle(text)
+        self.activation.activate()  # start the reply window after a long task finishes, too
         route = outcome.route
         log.info(
             "turn %r -> %s timings=%s",
@@ -85,16 +102,22 @@ def build_session() -> AgentSession:
             llm=lk_openai.realtime.RealtimeModel(
                 model=REALTIME_MODEL,
                 voice=VOICE,
-                turn_detection={"type": "semantic_vad", "create_response": False},
-                input_audio_transcription={"model": STT_MODEL},
+                turn_detection=SemanticVad(type="semantic_vad", create_response=False, interrupt_response=False),
+                input_audio_transcription=AudioTranscription(model=STT_MODEL),
             ),
-            preemptive_generation=False,  # every turn is intercepted before a response is created
+            turn_handling={"turn_detection": "realtime_llm", "preemptive_generation": {"enabled": False}},
+            vad=None,
         )
     return AgentSession(
+        # Short desktop commands need local endpointing, not a cloud turn-detector dependency.
+        turn_handling={
+            "turn_detection": "vad",
+            "interruption": {"mode": "vad"},
+            "preemptive_generation": {"enabled": False},
+        },
         stt=lk_openai.STT(model=STT_MODEL, language=LANGUAGE),
         llm=lk_openai.LLM(model=CHAT_MODEL, temperature=0.3),
         tts=lk_openai.TTS(model=TTS_MODEL, voice=VOICE),
-        preemptive_generation=False,  # we decide per-turn whether the LLM runs at all
     )
 
 
@@ -128,7 +151,11 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
     log.info("pipeline: mode=%s stt=%s tts=%s voice=%s llm=%s", VOICE_MODE, STT_MODEL, TTS_MODEL, VOICE, CHAT_MODEL)
     await session.start(agent=BrodiAgent(mac), room=ctx.room)
-    greeting = "brodi ready." if policy.ENABLED else "brodi ready. Warning: the safety policy is off."
+    greeting = "Brodi ready. Say hey bro, then tell me what to do."
+    if os.environ.get("BRODI_WAKE_REQUIRED", "1") == "0":
+        greeting = "Brodi ready. Tell me what to do."
+    if not policy.ENABLED:
+        greeting += " Warning: the safety policy is off."
     session.say(greeting, add_to_chat_ctx=False)
 
 

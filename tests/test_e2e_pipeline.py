@@ -79,6 +79,7 @@ def responder(
 
 
 def make_agent(tmp_path, monkeypatch, platform, tools, handler, on_learning=None):
+    monkeypatch.setattr(agent_module.browser_task, "access_error", lambda: None)
     monkeypatch.setenv("BRODI_OS", platform)
     seed = tmp_path / "seed.json"
     seed.write_text("[]")

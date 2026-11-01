@@ -9,4 +9,11 @@ runs through a self-contained CDP loop in the user's Chrome, one Decisions reque
 
 __all__ = ["DynamicMacAgent"]
 
-from .agent import DynamicMacAgent
+
+def __getattr__(name: str):
+    # Let command-line entrypoints load configuration before model/profile modules.
+    if name == "DynamicMacAgent":
+        from .agent import DynamicMacAgent
+
+        return DynamicMacAgent
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

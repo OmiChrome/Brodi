@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from . import chrome, os_backend, policy
+from . import chrome, commands, os_backend, policy
 from .applescript import MacContext
 from .os_backend import escape_applescript_string, escape_powershell_string
 
@@ -34,7 +34,7 @@ SEED_PATH = TOOLS_DIR / "seed.json"
 LEARNED_PATH = TOOLS_DIR / "learned.json"
 
 MAX_CHOICE_OPTIONS = 255  # Jev Choice limit
-BUILTIN_PLACEHOLDERS = {"chrome_profile", "chrome_home"}  # filled by chrome.system_vars(), never by Jev
+BUILTIN_PLACEHOLDERS = {"chrome_profile", "chrome_home", "browser_url"}
 
 ArgKind = Literal["enum", "text"]
 DynamicSource = Literal["running_apps", "installed_apps", "apps"]
@@ -132,6 +132,10 @@ class Tool:
         for name in self.computed:  # filled by the agent via resolvers before execution
             if name in args:
                 script = script.replace("{{" + name + "}}", escape(args[name]))
+        if "{{browser_url}}" in script:
+            script = script.replace(
+                "{{browser_url}}", escape(commands.browser_url(args.get("site", "other"), args.get("query", "")))
+            )
         return script
 
     def choice_description(self) -> dict[str, Any]:

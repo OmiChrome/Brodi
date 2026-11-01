@@ -11,10 +11,12 @@ import argparse
 import asyncio
 import logging
 import sys
+from typing import TYPE_CHECKING
 
-from dotenv import load_dotenv
+from .config import load_environment
 
-from .agent import DynamicMacAgent
+if TYPE_CHECKING:
+    from .agent import DynamicMacAgent
 
 
 async def _main(argv: list[str]) -> int:
@@ -23,13 +25,23 @@ async def _main(argv: list[str]) -> int:
     ap.add_argument("--dry", action="store_true", help="route only; do not execute or learn")
     ap.add_argument("--no-learn", action="store_true", help="disable the LLM tool-generation fallback")
     ap.add_argument("--policy", action="store_true", help="list every tool with its policy status and exit")
+    ap.add_argument("--doctor", action="store_true", help="check setup and browser access without audio or model calls")
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if ns.verbose else logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
-    load_dotenv(".env.local")
-    load_dotenv()
+    load_environment()
+
+    if ns.doctor:
+        from .diagnostics import report
+
+        checks = await asyncio.to_thread(report)
+        for name, ok, detail in checks:
+            print(f"{'OK' if ok else 'NEEDS SETUP'} {name}: {detail}")
+        return 0 if all(ok for _, ok, _ in checks) else 1
+
+    from .agent import DynamicMacAgent
 
     if ns.policy:
         from . import policy as _policy
