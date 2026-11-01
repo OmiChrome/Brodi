@@ -111,7 +111,7 @@ def test_startup_and_progress_use_short_speech_without_losing_details(monkeypatc
     monkeypatch.setenv("BRODI_STARTUP_GREETING", "true")
     monkeypatch.setattr(entrypoint.policy, "ENABLED", True)
     callbacks, captured = {}, {}
-    session = SimpleNamespace(start=AsyncMock(), say=Mock())
+    session = SimpleNamespace(start=AsyncMock(), say=AsyncMock())
     session.on = lambda name: lambda callback: callbacks.update({name: callback})
     core = Mock(start=AsyncMock(), aclose=AsyncMock())
 
@@ -125,13 +125,15 @@ def test_startup_and_progress_use_short_speech_without_losing_details(monkeypatc
     monkeypatch.setattr(entrypoint, "ActivityLog", lambda: journal)
 
     asyncio.run(entrypoint.entrypoint(Mock(room=object())))
+    session.say.assert_awaited_once_with("Ready.", add_to_chat_ctx=False, allow_interruptions=False)
+    session.say = Mock()
     progress = captured["on_learning"]
     details = "I am creating a tool and checking its generated script."
     progress(details)
     progress("Still working on the same command.")
-    assert [call.args[0] for call in session.say.call_args_list] == ["Ready.", "On it."]
+    assert [call.args[0] for call in session.say.call_args_list] == ["On it."]
     journal.emit.assert_any_call("progress", details)
     voice_agent = session.start.call_args.kwargs["agent"]
     voice_agent.on_command()
     progress("This is the next command.")
-    assert [call.args[0] for call in session.say.call_args_list] == ["Ready.", "On it.", "On it."]
+    assert [call.args[0] for call in session.say.call_args_list] == ["On it.", "On it."]

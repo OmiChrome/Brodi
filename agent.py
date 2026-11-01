@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
 from collections.abc import Callable
 
@@ -27,6 +28,7 @@ from brodi import policy  # noqa: E402
 from brodi.activity import ActivityLog  # noqa: E402
 from brodi.agent import PENDING_TTL_S, DynamicMacAgent  # noqa: E402
 from brodi.console_audio import close_console_audio  # noqa: E402
+from brodi.microphone import MicrophoneControl  # noqa: E402
 from brodi.speech import SpeechSettings, speech_speed  # noqa: E402
 from brodi.transcription import DEFAULT_MODEL as DEFAULT_STT_MODEL  # noqa: E402
 from brodi.transcription import create_stt  # noqa: E402
@@ -44,16 +46,25 @@ VOICE = os.environ.get("BRODI_VOICE", "onyx")  # deep male voice
 
 
 class BrodiAgent(Agent):
-    def __init__(self, mac: DynamicMacAgent, *, on_command: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        mac: DynamicMacAgent,
+        microphone: MicrophoneControl | None = None,
+        *,
+        on_command: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(instructions=INSTRUCTIONS)
         self.mac = mac
         self.on_command = on_command
+        self.microphone = microphone
         self.activation = VoiceGate(
             required=flag("BRODI_WAKE_REQUIRED", default=False),
             window_s=float(os.environ.get("BRODI_WAKE_WINDOW_S", "20")),
         )
 
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
+        if self.microphone is not None and not self.microphone.accepts(new_message):
+            raise StopResponse()
         text = new_message.text_content or ""
         if not text.strip():
             raise StopResponse()
@@ -162,11 +173,23 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         nonlocal progress_spoken
         progress_spoken = False
 
-    voice_agent = BrodiAgent(mac, on_command=_command_started)
+    # A remote LiveKit worker has no local microphone or keyboard to control.
+    microphone = MicrophoneControl(session, activity) if "console" in sys.argv[1:] else None
+    voice_agent = BrodiAgent(mac, microphone, on_command=_command_started)
+    if microphone is not None and voice_agent.activation.required:
+        microphone.listening_label = "Listening for Hey bro"
 
     @session.on("agent_state_changed")
     def _state_changed(event) -> None:
         state = event.new_state
+        if microphone is not None:
+            microphone.listening_label = (
+                "Listening for Hey bro"
+                if voice_agent.activation.required and not mac.pending and not mac.pending_question
+                else "Listening"
+            )
+            microphone.publish()
+            return
         if state == "listening":
             status = mac.waiting_status()
             if voice_agent.activation.required and not mac.pending and not mac.pending_question:
@@ -194,6 +217,8 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
     async def _close() -> None:
         close_console_audio(session)
+        if microphone is not None:
+            await microphone.aclose()
         await mac.aclose()
         activity.emit("status", "Brodi stopped")
 
@@ -205,24 +230,28 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     activity.emit("status", "Connecting microphone and speaker")
     try:
         await session.start(agent=voice_agent, room=ctx.room)
+        if microphone is not None:
+            microphone.attach()
     except Exception as exc:
         close_console_audio(session)
         activity.emit("error", "Could not start the voice session", reason=str(exc))
         raise
     required = voice_agent.activation.required
-    activity.emit(
-        "status",
-        "Listening for Hey bro with OpenAI" if required else "Listening with OpenAI",
-        hint="Say Hey bro, open GitHub" if required else "Tell me what to do; Hey bro is optional",
-    )
-    if not flag("BRODI_STARTUP_GREETING", default=True):
-        return
-    greeting = "Ready."
-    if not policy.ENABLED:
-        activity.emit("error", "The safety policy is off")
-        greeting = "Policy disabled."
-    activity.emit("output", greeting)
-    session.say(greeting, add_to_chat_ctx=False, allow_interruptions=False)
+    if flag("BRODI_STARTUP_GREETING", default=True):
+        greeting = "Ready."
+        if not policy.ENABLED:
+            activity.emit("error", "The safety policy is off")
+            greeting = "Policy disabled."
+        activity.emit("output", greeting)
+        await session.say(greeting, add_to_chat_ctx=False, allow_interruptions=False)
+    if microphone is not None:
+        await microphone.start()
+    else:
+        activity.emit(
+            "status",
+            "Listening for Hey bro with OpenAI" if required else "Listening with OpenAI",
+            hint="Say Hey bro, open GitHub" if required else "Tell me what to do; Hey bro is optional",
+        )
 
 
 if __name__ == "__main__":
