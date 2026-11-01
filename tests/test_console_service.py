@@ -17,13 +17,14 @@ def test_console_service_owns_terminal_and_stops_child(tmp_path: pathlib.Path) -
     uv = tmp_path / "uv"
     uv.write_text(
         "#!/bin/sh\n"
+        'printf "args=%s\\n" "$*"\n'
         "exec python3 -u -c 'import os,sys,time; "
         'print(f"child={os.getpid()} tty={sys.stdin.isatty()}", flush=True); '
         "time.sleep(60)'\n"
     )
     uv.chmod(0o755)
     log = tmp_path / "console.log"
-    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"}
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "BRODI_OUTPUT_DEVICE": "MacBook Air Speakers"}
     proc = subprocess.Popen(
         [sys.executable, "-m", "brodi.console_service", str(log)],
         env=env,
@@ -41,6 +42,7 @@ def test_console_service_owns_terminal_and_stops_child(tmp_path: pathlib.Path) -
                 break
             time.sleep(0.05)
         assert child_pid is not None, f"child did not acquire a terminal: {content}"
+        assert "--output-device MacBook Air Speakers" in content
         assert proc.poll() is None
     finally:
         proc.terminate()

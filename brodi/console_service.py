@@ -17,7 +17,12 @@ def main() -> int:
     log_path = sys.argv[1]
     child, master = pty.fork()
     if child == 0:
-        os.execvp("uv", ["uv", "run", "python", "agent.py", "console"])
+        command = ["uv", "run", "python", "agent.py", "console"]
+        if output_device := os.getenv("BRODI_OUTPUT_DEVICE"):
+            command.extend(["--output-device", output_device])
+        if input_device := os.getenv("BRODI_INPUT_DEVICE"):
+            command.extend(["--input-device", input_device])
+        os.execvp("uv", command)
 
     def stop(_signum: int, _frame: object) -> None:
         try:

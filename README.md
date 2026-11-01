@@ -114,6 +114,9 @@ brodi doctor       :: check setup without recording audio or calling a model
 
 `brodi.cmd` forwards to `console.ps1` on Windows. On macOS, `brody` runs the same
 local console mode through `uv` and tracks its process for `status` and `stop`.
+If audio goes to the wrong device, set `BRODI_OUTPUT_DEVICE` in `.env.local` to a
+speaker name shown by `uv run python agent.py console --list-devices`. You can set
+`BRODI_INPUT_DEVICE` the same way for the microphone, then run `brody restart`.
 Install the macOS command once with:
 
 ```bash
