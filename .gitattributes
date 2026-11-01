@@ -1,0 +1,3 @@
+# Native macOS launchers must remain executable text after a Windows checkout.
+brody text eol=lf
+console.sh text eol=lf

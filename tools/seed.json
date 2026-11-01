@@ -770,10 +770,10 @@
   },
   {
     "name": "calculate",
-    "description": "Calculate a short numeric arithmetic expression with +, -, *, /, %, and parentheses.",
-    "runner": "builtin",
+    "description": "Open Calculator, press its numeric and operator buttons, and leave the verified result visible. Do not speak the numeric answer.",
+    "runner": "calculator",
     "script": "",
-    "speak": "result",
+    "speak": "Got it.",
     "args": [
       {
         "name": "expression",
@@ -782,7 +782,9 @@
       }
     ],
     "examples": [
-      "calculate 23 times 7"
+      "what is 500 x 450",
+      "calculate 23 times 7",
+      "multiply 500 by 450"
     ]
   }
 ]

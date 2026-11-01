@@ -53,6 +53,7 @@ def user32():
         "IsWindowVisible": ([wintypes.HWND], wintypes.BOOL),
         "IsIconic": ([wintypes.HWND], wintypes.BOOL),
         "GetWindow": ([wintypes.HWND, wintypes.UINT], wintypes.HWND),
+        "GetAncestor": ([wintypes.HWND, wintypes.UINT], wintypes.HWND),
         "GetWindowTextW": ([wintypes.HWND, wintypes.LPWSTR, ctypes.c_int], ctypes.c_int),
         "GetClassNameW": ([wintypes.HWND, wintypes.LPWSTR, ctypes.c_int], ctypes.c_int),
         "GetWindowThreadProcessId": ([wintypes.HWND, ctypes.POINTER(wintypes.DWORD)], wintypes.DWORD),

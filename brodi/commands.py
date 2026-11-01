@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from urllib.parse import quote_plus, urlsplit
 
 from . import os_backend
+from .calculator import request_expression
 
 WAKE = re.compile(r"^(?:(?:hey|yo|hello|hi|okay|ok)[\s,]+(?:brodi|bro|brody)|brodi|brody)\b[\s,!.:;?-]*", re.I)
 SITE_URLS = {
@@ -90,6 +91,8 @@ WINDOWS_APPS = {
     "edge": "Microsoft Edge",
     "microsoft edge": "Microsoft Edge",
     "calculator": "Calculator",
+    "calculatar": "Calculator",
+    "calcutlar": "Calculator",
     "calc": "Calculator",
     "paint": "Paint",
     "microsoft paint": "Paint",
@@ -135,7 +138,7 @@ def normalize(text: str) -> tuple[str, bool]:
     # Strip only an explicit request prefix followed by a known command verb.
     # Embedded search/message content must retain the user's literal words.
     text = re.sub(
-        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|close|quit|exit|minimize|maximize|restore|focus|switch to|bring up|show|take|capture|pause|resume|skip|calculate|go to|navigate to|search|look up|type|write|enter|run)\b)",
+        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|close|quit|exit|minimize|maximize|restore|focus|switch to|bring up|show|take|capture|pause|resume|skip|calculate|compute|multiply|divide|add|subtract|go to|navigate to|search|look up|type|write|enter|run)\b)",
         "",
         text,
         flags=re.I,
@@ -248,19 +251,8 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
                 else "louder"
             },
         )
-    calculation = re.fullmatch(r"calculate\s+(.+)", clean, re.I)
-    if calculation:
-        expression = calculation[1].lower()
-        for word, symbol in (
-            ("multiplied by", "*"),
-            ("divided by", "/"),
-            ("plus", "+"),
-            ("minus", "-"),
-            ("times", "*"),
-        ):
-            expression = re.sub(rf"\b{word}\b", symbol, expression)
-        if re.fullmatch(r"[\d.\s()+*/%\-]{1,80}", expression):
-            return Command("calculate", {"expression": expression})
+    if expression := request_expression(clean):
+        return Command("calculate", {"expression": expression})
     if clean.lower() in {"search", "search for", "serach"}:
         return Command("chrome_open", {"site": "google", "query": ""}, "What should I search for?", "query")
     # Keep compound tasks in the browser agent, rather than dropping the second instruction.

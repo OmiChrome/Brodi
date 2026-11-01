@@ -31,7 +31,7 @@ def owns_agent(command: list[str], cwd: str, root: Path = ROOT) -> bool:
             if not path.is_absolute():
                 path = Path(cwd) / path
             return path.resolve() == (root / "agent.py").resolve()
-        if argument == "-m" and command[index + 1] == "brodi.wake_runtime":
+        if argument == "-m" and command[index + 1] in {"brodi.wake_runtime", "brodi.console_service"}:
             return Path(cwd).resolve() == root.resolve()
     return False
 
@@ -41,7 +41,8 @@ class AgentController:
 
     def __init__(self, root: Path = ROOT):
         self.root = root
-        self.log_path = Path(os.environ.get("BRODI_LOG", Path(tempfile.gettempdir()) / "brodi-console.log"))
+        log_name = f"brody-{os.getuid()}.log" if sys.platform == "darwin" else "brodi-console.log"
+        self.log_path = Path(os.environ.get("BRODI_LOG", Path(tempfile.gettempdir()) / log_name))
         self._child: subprocess.Popen | None = None
 
     @property
@@ -76,23 +77,53 @@ class AgentController:
                 pass
         return next((process.pid for process in processes if process.pid not in parents), None)
 
-    def start(self) -> None:
+    def start(self, *, manage_background: bool = True, wake: bool = False) -> None:
+        if manage_background:
+            from .background import installed, start_service
+
+            if installed(self.root):
+                start_service(self.root)
+                return
         if self.processes():
             return
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError("Set OPENAI_API_KEY in .env.local before starting Brodi.")
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        environment = os.environ.copy()
+        if wake:
+            environment.update(
+                BRODI_BACKGROUND="true",
+                BRODI_WAKE_REQUIRED="true",
+                BRODI_STARTUP_GREETING="false",
+                BRODI_VOICE_MODE="pipeline",
+            )
+        command = [self.python, str(self.root / "agent.py"), "console"]
+        if sys.platform == "darwin":
+            # LiveKit's macOS console needs a TTY even when launched at login.
+            command = [self.python, "-m", "brodi.console_service", str(self.log_path), "--python", self.python]
+        else:
+            for setting, argument in [
+                ("BRODI_INPUT_DEVICE", "--input-device"),
+                ("BRODI_OUTPUT_DEVICE", "--output-device"),
+            ]:
+                if value := environment.get(setting):
+                    command.extend([argument, value])
         with self.log_path.open("ab", buffering=0) as output:
             self._child = subprocess.Popen(
-                [self.python, str(self.root / "agent.py"), "console"],
+                command,
                 cwd=self.root,
+                env=environment,
                 stdin=subprocess.DEVNULL,
                 stdout=output,
                 stderr=subprocess.STDOUT,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
 
-    def stop(self) -> None:
+    def stop(self, *, manage_background: bool = True) -> None:
+        if manage_background:
+            from .background import stop_service
+
+            stop_service(self.root)
         targets = {process.pid: process for process in self.processes()}
         for process in list(targets.values()):
             try:

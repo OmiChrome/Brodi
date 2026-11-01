@@ -24,6 +24,7 @@ from . import browser_task, commands, os_backend, policy, resolvers
 from .activity import ActivityLog
 from .applescript import ContextPoller, run_applescript
 from .automations import predefined_plan
+from .calculator import CalculatorSession, mac_script, prepare
 from .config import flag
 from .generator import DUPLICATE, ToolGenerator
 from .memory import MemoryStore
@@ -120,13 +121,24 @@ class DynamicMacAgent:
         self.context = ContextPoller()
         self.last_browser: dict[str, Any] | None = None  # goal, url, title, target_id, finished_at
         self.last_args: dict[str, dict[str, str]] = {}  # tool name -> last used arguments (for "send her another")
+        self._calculator: CalculatorSession | None = None
+        self._calculator_warm: asyncio.Task | None = None
 
     @profiled("startup")
     async def start(self) -> None:
         """Warm the context poller (optional; handle() does it lazily)."""
         await self.context.start()
+        if os_backend.is_windows() and self._calculator is None:
+            self._calculator = CalculatorSession()
+            # Load UIA while listening starts, without opening Calculator or touching its display.
+            self._calculator_warm = asyncio.create_task(self._calculator.warm(), name="brodi-calculator-warm")
 
     async def aclose(self) -> None:
+        if self._calculator_warm is not None:
+            self._calculator_warm.cancel()
+            await asyncio.gather(self._calculator_warm, return_exceptions=True)
+        if self._calculator is not None:
+            await self._calculator.aclose()
         await self.context.stop()
         if self.generator is not None:
             await self.generator.aclose()
@@ -984,15 +996,43 @@ class DynamicMacAgent:
         t0 = time.perf_counter()
         result = None
         fast_launch = False
-        if tool.runner in {"builtin", "windows_fast"} and tool.source != "seed":
+        if tool.runner in {"builtin", "windows_fast", "calculator"} and tool.source != "seed":
             outcome.speak = "That native action is not in the reviewed tool catalog."
             return
         if tool.runner == "builtin":
             from .quick_actions import run
 
             result = run(tool.name, args)
+        if tool.runner == "calculator":
+            expression = args.get("expression", "")
+            try:
+                calculation = prepare(expression)
+                if os_backend.is_windows():
+                    if self._calculator is None:
+                        self._calculator = CalculatorSession()
+                    result = await self._calculator.calculate(expression, timeout=min(8, self._script_timeout or 8))
+                else:
+                    source = mac_script(calculation)
+                    if policy.check(source):
+                        result = os_backend.ScriptResult(
+                            False, "", "Calculator input is blocked by the current policy."
+                        )
+                    else:
+                        result = await run_applescript(source, timeout=min(8, self._script_timeout or 8))
+            except (ValueError, SyntaxError, ArithmeticError) as exc:
+                result = os_backend.ScriptResult(
+                    False, "", "Cannot divide by zero." if isinstance(exc, ZeroDivisionError) else str(exc)
+                )
         if (
-            os_backend.is_windows()
+            tool.name == "quit_app"
+            and args.get("app") == "Calculator"
+            and self._calculator
+            and self._calculator.has_window
+        ):
+            result = await self._calculator.close_window(timeout=min(3, self._script_timeout or 3))
+        if (
+            result is None
+            and os_backend.is_windows()
             and tool.source == "seed"
             and tool.runner != "builtin"
             and (flag("BRODI_FAST_LAUNCH") or tool.runner == "windows_fast")
@@ -1076,6 +1116,8 @@ def _activity_action(tool: Tool, args: dict[str, str]) -> str:
         return "Opening " + args.get("app", "the app")
     if tool.name == "quit_app":
         return "Closing " + args.get("app", "the app")
+    if tool.name == "calculate":
+        return "Entering " + args.get("expression", "the calculation") + " in Calculator"
     if tool.name == "window_control":
         verb = {"minimize": "Minimizing", "maximize": "Maximizing", "restore": "Restoring", "focus": "Focusing"}
         return verb.get(args.get("action"), "Controlling") + " " + args.get("app", "the app")

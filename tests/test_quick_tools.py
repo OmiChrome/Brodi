@@ -82,6 +82,13 @@ def test_demo_phrases_execute_without_a_model(phrase, tool, args, monkeypatch, t
         raise AssertionError("A ready-made command must skip model routing")
 
     monkeypatch.setattr(native_launch, "execute", native)
+    from brodi.calculator import CalculatorSession
+
+    async def calculator(self, expression, **kwargs):
+        called.append(("calculate", {"expression": expression}))
+        return ScriptResult(True, '{"display":"161","verified":true}')
+
+    monkeypatch.setattr(CalculatorSession, "calculate", calculator)
     monkeypatch.setattr(assistant.router.client, "evaluate", no_network)
 
     async def scenario():
@@ -91,7 +98,7 @@ def test_demo_phrases_execute_without_a_model(phrase, tool, args, monkeypatch, t
             assert result.route.tool.name == tool
             assert result.route.args == args
             assert assistant.state is State.IDLE
-            if tool in {"calculate", "system_info"}:
+            if tool == "system_info":
                 assert not called
             else:
                 assert called == [(tool, args)]
@@ -140,12 +147,13 @@ def test_mac_app_commands_and_windows_only_catalog(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("expression,answer", [("23 * 7", "161"), ("(100 - 5) / 5", "19"), ("-4 + 0.5", "-3.5")])
 def test_arithmetic_is_deterministic(expression, answer):
-    assert quick_actions.run("calculate", {"expression": expression}).output == answer
+    assert quick_actions.calculate(expression) == answer
 
 
 @pytest.mark.parametrize("expression", ["1/0", "2**1000000", "1e999", "True+1", "abs(-1)", "x", "9" * 81])
 def test_arithmetic_rejects_code_and_unbounded_numbers(expression):
-    assert not quick_actions.run("calculate", {"expression": expression}).ok
+    with pytest.raises((ValueError, SyntaxError, ArithmeticError)):
+        quick_actions.calculate(expression)
 
 
 def test_close_selects_foreground_or_fails_on_ambiguity():

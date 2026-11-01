@@ -91,6 +91,10 @@ class BrodiAgent(Agent):
                 await self.session.say(outcome.speak or "Goodbye.", add_to_chat_ctx=False, allow_interruptions=False)
             except RuntimeError:
                 pass
+            if flag("BRODI_BACKGROUND", default=False):
+                from brodi.background import request_stop
+
+                request_stop()  # Explicit stop must not be undone by the supervisor.
             get_job_context().shutdown(reason="user asked brodi to stop")
             raise StopResponse()
 
@@ -167,7 +171,10 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     def _state_changed(event) -> None:
         state = event.new_state
         if state == "listening":
-            activity.emit("status", mac.waiting_status())
+            status = mac.waiting_status()
+            if voice_agent.activation.required and not mac.pending and not mac.pending_question:
+                status = "Listening for Hey bro with OpenAI"
+            activity.emit("status", status)
         elif state == "speaking":
             activity.emit("status", "Speaking")
 
@@ -189,6 +196,13 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             reason=str(getattr(error, "message", "Check brodi debug for connection details.")),
         )
 
+    @session.on("close")
+    def _session_closed(event) -> None:
+        if flag("BRODI_BACKGROUND", default=False):
+            # A dead voice session can leave its console worker alive. Exit it so
+            # the supervisor can reconnect; an explicit stop already set its stop flag.
+            ctx.shutdown(reason="background voice session closed")
+
     async def _close() -> None:
         await mac.aclose()
         activity.emit("status", "Brodi stopped")
@@ -202,7 +216,14 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     except Exception as exc:
         activity.emit("error", "Could not start the voice session", reason=str(exc))
         raise
-    activity.emit("status", "Listening with OpenAI", hint="Tell me what to do; Hey bro is optional")
+    required = voice_agent.activation.required
+    activity.emit(
+        "status",
+        "Listening for Hey bro with OpenAI" if required else "Listening with OpenAI",
+        hint="Say Hey bro, open GitHub" if required else "Tell me what to do; Hey bro is optional",
+    )
+    if not flag("BRODI_STARTUP_GREETING", default=True):
+        return
     greeting = "Brodi ready. Say hey bro, then tell me what to do."
     if not flag("BRODI_WAKE_REQUIRED", default=False):
         greeting = "Brodi ready. Tell me what to do."

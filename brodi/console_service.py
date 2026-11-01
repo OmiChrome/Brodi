@@ -2,27 +2,31 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import pty
 import select
 import signal
-import sys
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: python -m brodi.console_service LOG", file=sys.stderr)
-        return 2
-
-    log_path = sys.argv[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("log_path")
+    parser.add_argument("--python", help="Absolute virtualenv Python for login startup without shell PATH")
+    options = parser.parse_args()
+    log_path = options.log_path
     child, master = pty.fork()
     if child == 0:
-        command = ["uv", "run", "python", "agent.py", "console"]
+        command = (
+            [options.python, "agent.py", "console"]
+            if options.python
+            else ["uv", "run", "python", "agent.py", "console"]
+        )
         if output_device := os.getenv("BRODI_OUTPUT_DEVICE"):
             command.extend(["--output-device", output_device])
         if input_device := os.getenv("BRODI_INPUT_DEVICE"):
             command.extend(["--input-device", input_device])
-        os.execvp("uv", command)
+        os.execvp(command[0], command)
 
     def stop(_signum: int, _frame: object) -> None:
         try:

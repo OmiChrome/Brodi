@@ -15,6 +15,7 @@ OPERATORS = {
     ast.Mult: operator.mul,
     ast.Div: operator.truediv,
     ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
 }
 
 
@@ -27,22 +28,23 @@ def calculate(expression: str) -> str:
         if isinstance(node, ast.Constant) and type(node.value) in {int, float}:
             result = node.value
         elif isinstance(node, ast.BinOp) and type(node.op) in OPERATORS:
-            result = OPERATORS[type(node.op)](number(node.left), number(node.right))
+            left, right = number(node.left), number(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 12:
+                raise ValueError("Use a power between -12 and 12.")
+            result = OPERATORS[type(node.op)](left, right)
         elif isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
             result = number(node.operand) * (-1 if isinstance(node.op, ast.USub) else 1)
         else:
             raise ValueError("Use numbers with +, -, *, /, %, and parentheses")
-        if not math.isfinite(result) or abs(result) > 1e15:
+        if isinstance(result, complex) or not math.isfinite(result) or abs(result) > 1e15:
             raise ValueError("That number is too large")
         return result
 
-    return format(number(tree.body), ".12g")
+    return format(number(tree.body), ".15g")
 
 
 def run(tool: str, args: dict[str, str]) -> ScriptResult:
     try:
-        if tool == "calculate":
-            return ScriptResult(True, calculate(args.get("expression", "")))
         if tool == "system_info":
             kind = args.get("kind")
             if kind == "time":

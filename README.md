@@ -116,6 +116,15 @@ uv run python agent.py console
 
 Allow microphone access and any requested app Automation permissions. Native input may also need Accessibility access. For background controls, run `chmod +x brody`, then use `./brody start`, `./brody status`, and `./brody stop`.
 
+### Always available with "Hey bro"
+
+Run `.\brodi.cmd wake enable` on Windows or `./brody wake enable` on macOS.
+Brodi starts in the background at sign-in; close the terminal and say **"Hey bro, open GitHub."**
+The listener requires the wake phrase, allows brief follow-ups, and recovers if the voice process crashes.
+**It streams microphone audio to OpenAI while running**, even before the wake phrase.
+Use `wake disable` to stop it and remove login startup. It works while signed in and awake.
+See [background wake setup and controls](docs/WAKE.md), including macOS microphone permissions.
+
 ### Prefer typing?
 
 The text CLI uses the same command engine without recording audio:

@@ -2,7 +2,7 @@
 # Usage: brodi start        (brodi.cmd on PATH calls this)
 #        .\console.ps1 start
 param(
-    [ValidateSet("start", "stop", "status", "log", "restart", "doctor", "debug", "tray")][string]$Action = "start",
+    [ValidateSet("start", "stop", "status", "log", "restart", "doctor", "debug", "tray", "wake")][string]$Action = "start",
     [switch]$Once,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArguments
 )
@@ -53,11 +53,8 @@ function Import-DotEnv([string]$Path) {
 }
 
 function Stop-Brodi {
-    $running = Get-BrodiProcess
-    if (-not $running) { "not running"; return }
-    $running | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Milliseconds 800
-    "stopped (pid $($running.ProcessId -join ', '))"
+    Invoke-BrodiPython @('-m', 'brodi.background', 'stop')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 function Start-Tray([switch]$Manual) {
@@ -83,16 +80,8 @@ function Start-Brodi {
         exit 1
     }
 
-    # One log file, raw bytes: cmd redirection keeps the agent's own encoding and merges stderr.
-    $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-    if (Test-Path -LiteralPath $python) {
-        $launch = "`"$python`" `"$PSScriptRoot\agent.py`" console"
-    } else {
-        $launch = "uv run python `"$PSScriptRoot\agent.py`" console"
-    }
-    $inner = "/c cd /d `"$PSScriptRoot`" && $launch >> `"$Log`" 2>&1"
-    $wrapper = Start-Process -FilePath "cmd.exe" `
-        -ArgumentList $inner -WindowStyle Hidden -PassThru
+    Invoke-BrodiPython @('-m', 'brodi.background', 'start')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Start-Sleep -Seconds 4
 
     $running = Get-BrodiProcess
@@ -107,6 +96,12 @@ function Start-Brodi {
 }
 
 switch ($Action) {
+    "wake" {
+        $wakeAction = if ($ExtraArguments.Count -gt 0) { $ExtraArguments[0] } else { 'status' }
+        if ($wakeAction -notin @('enable', 'disable', 'status')) { throw 'Usage: brodi wake enable|disable|status' }
+        Invoke-BrodiPython @('-m', 'brodi.background', $wakeAction)
+        exit $LASTEXITCODE
+    }
     "doctor" {
         Invoke-BrodiPython @('-m', 'brodi.cli', '--doctor')
         exit $LASTEXITCODE

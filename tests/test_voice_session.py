@@ -3,7 +3,7 @@
 import asyncio
 import importlib
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -97,3 +97,86 @@ def test_cloud_start_does_not_need_local_wake_model(tmp_path, monkeypatch):
     monkeypatch.setattr(tray.subprocess, "Popen", lambda *args, **kwargs: launches.append(args))
     controller.start()
     assert len(launches) == 1
+
+
+def test_background_wake_preserves_combined_command_and_expires(monkeypatch):
+    from brodi import voice
+    from brodi.agent import Outcome
+
+    entrypoint = voice_entrypoint(monkeypatch)
+    monkeypatch.setenv("BRODI_WAKE_REQUIRED", "true")
+    clock = [100.0]
+    monkeypatch.setattr(voice.time, "monotonic", lambda: clock[0])
+    core = SimpleNamespace(
+        pending=None, pending_question=None, handle=AsyncMock(return_value=Outcome(executed=True, speak="Got it."))
+    )
+    agent = entrypoint.BrodiAgent(core)
+    monkeypatch.setattr(entrypoint.BrodiAgent, "session", property(lambda self: SimpleNamespace(say=AsyncMock())))
+
+    async def turn(text):
+        with pytest.raises(entrypoint.StopResponse):
+            await agent.on_user_turn_completed(None, SimpleNamespace(text_content=text))
+
+    async def check():
+        await turn("open GitHub")
+        core.handle.assert_not_called()
+        await turn("Hey bro, open GitHub")
+        core.handle.assert_awaited_once_with("Hey bro, open GitHub")
+        await turn("open Chrome")  # Brief follow-up after wake is allowed.
+        assert core.handle.await_count == 2
+        clock[0] += 21
+        await turn("open Calculator")
+        assert core.handle.await_count == 2
+        await turn("Hey bro, open Calculator")
+        assert core.handle.await_count == 3
+
+    asyncio.run(check())
+
+
+def test_spoken_stop_stops_supervisor_instead_of_auto_restarting(monkeypatch):
+    from brodi import background
+    from brodi.agent import Outcome
+
+    entrypoint = voice_entrypoint(monkeypatch)
+    monkeypatch.setenv("BRODI_BACKGROUND", "true")
+    monkeypatch.setenv("BRODI_WAKE_REQUIRED", "true")
+    events = []
+    monkeypatch.setattr(background, "request_stop", lambda: events.append("stop-supervisor"))
+    monkeypatch.setattr(
+        entrypoint, "get_job_context", lambda: SimpleNamespace(shutdown=lambda **kw: events.append("shutdown"))
+    )
+    core = SimpleNamespace(pending=None, pending_question=None, handle=AsyncMock(return_value=Outcome(stop=True)))
+    agent = entrypoint.BrodiAgent(core)
+    monkeypatch.setattr(entrypoint.BrodiAgent, "session", property(lambda self: SimpleNamespace(say=AsyncMock())))
+
+    async def check():
+        with pytest.raises(entrypoint.StopResponse):
+            await agent.on_user_turn_completed(None, SimpleNamespace(text_content="Hey bro, stop listening"))
+        assert events == ["stop-supervisor", "shutdown"]
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("background", [True, False])
+def test_closed_background_session_releases_worker_for_recovery(monkeypatch, background):
+    entrypoint = voice_entrypoint(monkeypatch)
+    monkeypatch.setenv("BRODI_BACKGROUND", str(background).lower())
+    monkeypatch.setenv("BRODI_STARTUP_GREETING", "false")
+    callbacks = {}
+
+    def register(name):
+        def decorator(callback):
+            callbacks[name] = callback
+            return callback
+
+        return decorator
+
+    core = Mock(start=AsyncMock(), aclose=AsyncMock())
+    session = SimpleNamespace(on=register, start=AsyncMock())
+    monkeypatch.setattr(entrypoint, "DynamicMacAgent", lambda **kw: core)
+    monkeypatch.setattr(entrypoint, "build_session", lambda: session)
+    monkeypatch.setattr(entrypoint, "ActivityLog", Mock)
+    ctx = Mock(room=object())
+    asyncio.run(entrypoint.entrypoint(ctx))
+    callbacks["close"](SimpleNamespace())
+    assert ctx.shutdown.call_count == int(background)

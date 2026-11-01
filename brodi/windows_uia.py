@@ -311,4 +311,9 @@ def _worker() -> None:
 
 
 if __name__ == "__main__":
-    _worker()
+    if "--calculator-worker" in sys.argv:
+        from .calculator_uia import worker
+
+        worker()
+    else:
+        _worker()
