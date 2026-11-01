@@ -1,0 +1,31 @@
+[project]
+name = "brodi"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "livekit-agents[openai]~=1.8",
+    "openai>=3.26.0",
+    "psutil>=6.1.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.2.3",
+    "websockets>=14.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.16.8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "PIE", "SIM"]
+ignore = ["E501", "SIM102", "SIM105", "SIM108", "B905"]
