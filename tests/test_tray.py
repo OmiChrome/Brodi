@@ -1,3 +1,5 @@
+import shlex
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -6,6 +8,16 @@ import pytest
 
 from brodi import tray
 from brodi.activity import ActivityLog
+
+
+@pytest.fixture(autouse=True)
+def isolated_desktop(tmp_path, monkeypatch):
+    from brodi import background
+
+    monkeypatch.setenv("BRODI_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("BRODI_ACTIVITY_LOG", str(tmp_path / "events"))
+    monkeypatch.setattr(background, "installed", lambda root: False)
+    monkeypatch.setattr(background, "stop_service", lambda root: None)
 
 
 def process(pid, command, cwd, *, parent=0, name="python.exe"):
@@ -63,6 +75,7 @@ def test_stop_ends_assistant_and_uia_but_leaves_opened_apps(tmp_path, monkeypatc
 
 
 def test_start_is_idempotent_and_uses_hidden_argument_vector(tmp_path, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "win32")
     controller = tray.AgentController(tmp_path)
     controller.log_path = tmp_path / "voice.log"
     existing = [object()]
@@ -89,6 +102,7 @@ def test_start_without_key_reports_setup_error(tmp_path, monkeypatch):
 
 
 def test_activity_and_log_use_argument_vectors_and_current_agent(tmp_path, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "win32")
     controller = tray.AgentController(tmp_path)
     controller.log_path = tmp_path / "voice log.log"
     monkeypatch.setattr(controller, "processes", lambda: [process(30, [], tmp_path)])
@@ -146,7 +160,7 @@ def test_errors_are_reported_without_crashing_tray(tmp_path, monkeypatch):
     app.icon.notify.assert_called_once_with("Missing local voice model", "Brodi needs attention")
 
 
-@pytest.mark.skipif(tray.sys.platform != "win32", reason="Windows-only pystray backend")
+@pytest.mark.skipif(sys.platform not in {"win32", "darwin"}, reason="Native tray backend")
 def test_menu_tracks_running_state_and_uses_official_icon(tmp_path, monkeypatch):
     import pystray
     from PIL import Image
@@ -161,3 +175,200 @@ def test_menu_tracks_running_state_and_uses_official_icon(tmp_path, monkeypatch)
     assert items["Show activity"].default
     with Image.open(tray.ROOT / "assets/branding/brodi.ico") as image:
         assert (16, 16) in image.ico.sizes() and (256, 256) in image.ico.sizes()
+
+
+def test_mac_launcher_is_owned_only_by_matching_checkout(tmp_path):
+    command = ["python", "-m", "brodi.console_service", "voice.log"]
+    assert tray.owns_agent(command, str(tmp_path), tmp_path)
+    assert not tray.owns_agent(command, str(tmp_path / "other"), tmp_path)
+
+
+def test_mac_start_uses_detached_terminal_wrapper(tmp_path, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "darwin")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-placeholder")
+    controller = tray.AgentController(tmp_path)
+    controller.log_path = tmp_path / "voice log.log"
+    monkeypatch.setattr(controller, "processes", list)
+    launch = Mock()
+    monkeypatch.setattr(tray.subprocess, "Popen", launch)
+    controller.start()
+    assert launch.call_args.args[0] == [
+        controller.python,
+        "-m",
+        "brodi.console_service",
+        str(controller.log_path),
+        "--python",
+        controller.python,
+    ]
+    assert launch.call_args.kwargs["start_new_session"]
+    assert "creationflags" not in launch.call_args.kwargs
+
+
+def test_windows_start_keeps_configured_audio_devices(tmp_path, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-placeholder")
+    monkeypatch.setenv("BRODI_INPUT_DEVICE", "USB microphone")
+    monkeypatch.setenv("BRODI_OUTPUT_DEVICE", "Headphones")
+    controller = tray.AgentController(tmp_path)
+    monkeypatch.setattr(controller, "processes", list)
+    launch = Mock()
+    monkeypatch.setattr(tray.subprocess, "Popen", launch)
+    controller.start()
+    assert launch.call_args.args[0][-4:] == ["--input-device", "USB microphone", "--output-device", "Headphones"]
+
+
+def test_macos_activity_opens_terminal_and_quotes_paths(tmp_path, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "darwin")
+    root = tmp_path / "Brodi's $(folder)"
+    root.mkdir()
+    controller = tray.AgentController(root)
+    monkeypatch.setattr(controller, "processes", lambda: [process(30, [], root)])
+    launch = Mock()
+    monkeypatch.setattr(tray.subprocess, "Popen", launch)
+    controller.show_activity()
+    arguments = launch.call_args.args[0]
+    assert arguments[:3] == ["/usr/bin/open", "-a", "Terminal"]
+    command = tray.Path(arguments[3])
+    lines = command.read_text().splitlines()
+    assert shlex.split(lines[1]) == ["cd", "--", str(root)]
+    assert shlex.split(lines[2]) == [
+        "exec",
+        controller.python,
+        "-m",
+        "brodi.activity",
+        "--path",
+        str(tray.default_path()),
+        "--pid",
+        "30",
+    ]
+    assert command.stat().st_mode & 0o777 == 0o700
+    controller.log_path = tmp_path / "voice log.log"
+    controller.show_log()
+    assert launch.call_args.args[0] == ["/usr/bin/open", "-a", "TextEdit", str(controller.log_path)]
+
+
+def test_activity_without_agent_shows_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    controller = tray.AgentController(tmp_path)
+    monkeypatch.setattr(controller, "processes", list)
+    launch = Mock()
+    monkeypatch.setattr(tray.subprocess, "Popen", launch)
+    controller.show_activity()
+    assert launch.call_args.args[0][-1] == "--once"
+    assert "--pid" not in launch.call_args.args[0]
+
+
+def test_mic_state_survives_other_activity_and_clears_on_stop(tmp_path, monkeypatch):
+    controller = Mock()
+    controller.leaf_pid.return_value = 20
+    controller.processes.return_value = [SimpleNamespace(pid=20)]
+    app = tray.TrayApp(controller)
+    journal = ActivityLog()
+    monkeypatch.setattr("brodi.activity.os.getpid", lambda: 20)
+    journal.emit("status", "Mic muted", mic_muted=True, mic_available=True, hotkey_available=True)
+    journal.emit("status", "Opening Chrome")
+    app.refresh()
+    assert app.summary == "Mic muted" and app.status == "Opening Chrome"
+    assert app.mic_available and app.hotkey_available and app.visual_state == "muted"
+    assert app.perform("toggle_mic")
+    controller.set_mic_muted.assert_called_once_with(20, False)
+    # State changes only when voice acknowledges the request.
+    assert app.mic_muted is True
+    controller.processes.return_value = []
+    app.refresh()
+    assert app.mic_muted is None and not app.mic_available and not app.hotkey_available
+    assert not app.mic_states and not app.hotkey_states
+
+
+def test_tray_reads_mailbox_snapshot_when_journal_has_no_mic_event(tmp_path, monkeypatch):
+    from brodi.mic_control import MicrophoneMailbox
+
+    monkeypatch.setattr("brodi.mic_control.os.getpid", lambda: 20)
+    mailbox = MicrophoneMailbox()
+    mailbox.publish(muted=True, available=True, hotkey_available=False)
+    controller = Mock()
+    controller.leaf_pid.return_value = 20
+    controller.processes.return_value = [SimpleNamespace(pid=20)]
+    app = tray.TrayApp(controller)
+    app.refresh()
+    assert app.summary == "Mic muted" and app.mic_available
+    assert not app.hotkey_available
+
+
+def test_controller_delivers_mute_request_to_current_session(tmp_path, monkeypatch):
+    from brodi.mic_control import MicrophoneMailbox
+
+    monkeypatch.setattr("brodi.mic_control.os.getpid", lambda: 20)
+    mailbox = MicrophoneMailbox()
+    mailbox.publish(muted=False, available=True, hotkey_available=True)
+    controller = tray.AgentController(tmp_path)
+    monkeypatch.setattr(controller, "processes", lambda: [SimpleNamespace(pid=20)])
+    controller.set_mic_muted(20, True)
+    assert mailbox.poll() is True
+    with pytest.raises(RuntimeError, match="session ended"):
+        controller.set_mic_muted(21, False)
+
+
+@pytest.mark.skipif(sys.platform not in {"win32", "darwin"}, reason="Native tray backend")
+def test_menu_mic_control_and_shortcut_fallback(tmp_path, monkeypatch):
+    import pystray
+
+    app = tray.TrayApp(Mock())
+    app.running, app.mic_available, app.mic_muted = True, True, True
+    items = {item.text: item for item in app.menu(pystray)}
+    assert items["Unmute microphone"].enabled
+    assert "Shortcut unavailable — use the microphone control" in items
+    app.hotkey_available, app.mic_muted = True, False
+    items = {item.text: item for item in app.menu(pystray)}
+    mute = next(item for text, item in items.items() if text.startswith("Mute microphone"))
+    assert "Space" in mute.text
+    assert "Shortcut unavailable — use the microphone control" not in items
+    app.busy.acquire()
+    assert not mute.enabled
+    app.busy.release()
+
+
+def test_notification_failure_keeps_error_visible_and_unlocks(tmp_path, monkeypatch):
+    app = tray.TrayApp(Mock())
+    app.controller.start.side_effect = RuntimeError("Setup needed")
+    app.icon = Mock()
+    app.icon.notify.side_effect = NotImplementedError()
+    assert not app.perform("start")
+    assert app.error == "Setup needed" and not app.busy.locked()
+    assert app.visual_state == "attention"
+
+
+def test_callback_reserves_action_before_launching_worker(tmp_path, monkeypatch):
+    app = tray.TrayApp(Mock())
+    thread = Mock()
+    monkeypatch.setattr(tray.threading, "Thread", thread)
+    app.callback("start")(None, None)
+    app.callback("stop")(None, None)
+    assert thread.call_count == 1
+    assert app.busy.locked()
+    app.busy.release()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS flock")
+def test_mac_instance_lock_is_per_checkout_and_released(tmp_path):
+    first = tray.acquire_instance(tmp_path)
+    try:
+        assert tray.acquire_instance(tmp_path) is None
+        other = tray.acquire_instance(tmp_path / "other")
+        assert other is not None
+        other.close()
+    finally:
+        first.close()
+    again = tray.acquire_instance(tmp_path)
+    assert again is not None
+    again.close()
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_tray_icons_are_distinct_and_transparent(platform, monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", platform)
+    images = [tray.tray_image(state) for state in ("listening", "muted", "stopped")]
+    assert all(image.size == (64, 64) and image.mode == "RGBA" for image in images)
+    assert len({image.tobytes() for image in images}) == 3
+    if platform == "darwin":
+        assert images[0].getpixel((0, 0))[3] == 0

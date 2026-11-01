@@ -10,7 +10,7 @@ personality is a capable bro who gets things done and speaks very little.
 | [PERSONAS.md](PERSONAS.md) | Personality, speech rules, response examples, and voice acceptance criteria. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Current modules, execution flows, tools, state, configuration, and testing. |
 | [ACTIVITY.md](ACTIVITY.md) | Live startup/status view, accepted inputs, gathered outputs, storage, and debugging. |
-| [TRAY.md](TRAY.md) | Official artwork, Windows tray controls, process lifecycle, configuration, and tests. |
+| [TRAY.md](TRAY.md) | macOS menu-bar and Windows tray controls, microphone state, configuration, and tests. |
 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | UIA, SQLite memory, bounded plans, configuration, smoke tests, and historical implementation evidence. |
 | [PERFORMANCE.md](PERFORMANCE.md) | Profiler, measured bottlenecks, fixes, and ready-to-run presentation automations. |
 | [Project README](../README.md) | Installation, startup commands, and a quick introduction. |

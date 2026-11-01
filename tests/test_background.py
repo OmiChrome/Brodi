@@ -192,3 +192,25 @@ def test_controller_stops_supervisor_before_voice(tmp_path, monkeypatch):
     monkeypatch.setattr(controller, "processes", lambda: order.append("voice") or [])
     controller.stop()
     assert order == ["supervisor", "voice"]
+
+
+@pytest.mark.parametrize("platform", ["win32", "darwin"])
+def test_supervisor_opens_native_tray_on_both_platforms(tmp_path, monkeypatch, platform):
+    from contextlib import nullcontext
+
+    root = fake_checkout(tmp_path)
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BRODI_TRAY", "true")
+    monkeypatch.setattr(background.sys, "platform", platform)
+    monkeypatch.setattr(background, "load_environment", lambda root: None)
+    monkeypatch.setattr(background, "instance_lock", lambda path: nullcontext(True))
+    monkeypatch.setattr(background.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(background.psutil, "Process", lambda: SimpleNamespace(create_time=lambda: 123))
+    supervisor = Mock()
+    monkeypatch.setattr(background, "supervise", supervisor)
+    launch = Mock()
+    monkeypatch.setattr(background.subprocess, "Popen", launch)
+    background.run(root)
+    assert launch.call_args.args[0] == [background.service_command(root)[0], "-m", "brodi.tray"]
+    assert launch.call_args.kwargs["cwd"] == root
+    assert supervisor.call_count == 1

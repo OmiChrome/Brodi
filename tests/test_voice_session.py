@@ -180,3 +180,47 @@ def test_closed_background_session_releases_worker_for_recovery(monkeypatch, bac
     asyncio.run(entrypoint.entrypoint(ctx))
     callbacks["close"](SimpleNamespace())
     assert ctx.shutdown.call_count == int(background)
+
+
+@pytest.mark.parametrize("greeting", [True, False])
+@pytest.mark.parametrize("wake_required", [True, False])
+def test_console_initializes_microphone_even_without_startup_greeting(monkeypatch, greeting, wake_required):
+    entrypoint = voice_entrypoint(monkeypatch)
+    monkeypatch.setenv("BRODI_STARTUP_GREETING", str(greeting).lower())
+    monkeypatch.setenv("BRODI_WAKE_REQUIRED", str(wake_required).lower())
+    monkeypatch.setattr(entrypoint.sys, "argv", ["agent.py", "console"])
+    callbacks = {}
+    events = []
+
+    def register(name):
+        def decorator(callback):
+            callbacks[name] = callback
+            return callback
+
+        return decorator
+
+    core = Mock(start=AsyncMock(), aclose=AsyncMock(), pending=None, pending_question=None)
+    session = SimpleNamespace(
+        on=register,
+        start=AsyncMock(side_effect=lambda **kw: events.append("session-start")),
+        say=AsyncMock(side_effect=lambda *a, **kw: events.append("greeting")),
+    )
+    microphone = SimpleNamespace(
+        attach=Mock(side_effect=lambda: events.append("mic-attach")),
+        start=AsyncMock(side_effect=lambda: events.append("mic-start")),
+        aclose=AsyncMock(),
+        publish=Mock(),
+        listening_label="Listening",
+    )
+    monkeypatch.setattr(entrypoint, "DynamicMacAgent", lambda **kw: core)
+    monkeypatch.setattr(entrypoint, "build_session", lambda: session)
+    monkeypatch.setattr(entrypoint, "MicrophoneControl", lambda *args: microphone)
+    monkeypatch.setattr(entrypoint, "ActivityLog", Mock)
+    ctx = Mock(room=object())
+    asyncio.run(entrypoint.entrypoint(ctx))
+    assert events == ["session-start", "mic-attach", *(["greeting"] if greeting else []), "mic-start"]
+    callbacks["agent_state_changed"](SimpleNamespace(new_state="listening"))
+    assert microphone.listening_label == ("Listening for Hey bro" if wake_required else "Listening")
+    microphone.publish.assert_called_once()
+    asyncio.run(ctx.add_shutdown_callback.call_args.args[0]())
+    microphone.aclose.assert_awaited_once()

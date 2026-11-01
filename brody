@@ -1,26 +1,48 @@
 #!/bin/zsh
-# macOS controls, shared with the background service and Windows tray.
+# macOS background voice assistant and native menu-bar controls.
 set -u
+unsetopt BG_NICE
 ROOT=${0:A:h}
 cd "$ROOT" || exit 1
+if ! command -v uv >/dev/null 2>&1; then
+  USER_PYTHON_BIN=$(python3 -m site --user-base 2>/dev/null)/bin
+  [[ -x $USER_PYTHON_BIN/uv ]] && export PATH="$USER_PYTHON_BIN:$PATH"
+fi
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  BRODI_PYTHON=("$ROOT/.venv/bin/python")
+elif command -v uv >/dev/null 2>&1; then
+  BRODI_PYTHON=(uv run python)
+else
+  print -u2 'missing: uv (install uv, then run uv sync in the Brodi folder)'
+  exit 1
+fi
 export BRODI_LOG=${BRODI_LOG:-${TMPDIR:-/tmp/}brody-${UID}.log}
 
-brodi_python() {
-  if [[ -x "$ROOT/.venv/bin/python" ]]; then
-    "$ROOT/.venv/bin/python" "$@"
-  else
-    uv run python "$@"
-  fi
+start_tray() {
+  nohup "${BRODI_PYTHON[@]}" -m brodi.tray "$@" </dev/null >/dev/null 2>&1 &!
 }
 
 case ${1:-status} in
   wake)
     case ${2:-status} in
-      enable|disable|status) brodi_python -m brodi.background "${2:-status}" ;;
+      enable)
+        "${BRODI_PYTHON[@]}" -m brodi.background enable || exit $?
+        start_tray ;;
+      disable|status) "${BRODI_PYTHON[@]}" -m brodi.background "${2:-status}" ;;
       *) print -u2 'usage: ./brody wake enable|disable|status'; exit 2 ;;
     esac ;;
-  start|stop|restart|status) brodi_python -m brodi.background "${1:-status}" ;;
-  log|debug)
-    [[ -f $BRODI_LOG ]] && tail -n 100 "$BRODI_LOG" || { print -u2 "no log at $BRODI_LOG"; exit 1; } ;;
-  *) print -u2 'usage: ./brody start|stop|status|restart|log|wake [enable|disable|status]'; exit 2 ;;
+  start|restart)
+    "${BRODI_PYTHON[@]}" -m brodi.tray --action "$1" || exit $?
+    start_tray
+    print "Brodi is starting. Use the menu-bar microphone for controls."
+    ;;
+  stop)
+    "${BRODI_PYTHON[@]}" -m brodi.tray --action stop || exit $?
+    print 'Brodi stopped. The menu-bar controls remain available.'
+    ;;
+  status) "${BRODI_PYTHON[@]}" -m brodi.background status ;;
+  tray) start_tray --force ;;
+  activity) "${BRODI_PYTHON[@]}" -m brodi.tray --action show_activity ;;
+  log|debug) [[ -f $BRODI_LOG ]] && tail -n 100 "$BRODI_LOG" || { print -u2 "no log at $BRODI_LOG"; exit 1; } ;;
+  *) print -u2 'usage: brody start|stop|status|restart|tray|activity|log|wake [enable|disable|status]'; exit 2 ;;
 esac

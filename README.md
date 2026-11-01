@@ -53,9 +53,17 @@ Voice recognition still uses OpenAI, including when a command takes a local shor
 | “Remember that my preferred browser is Arc.” | Saves the preference locally. |
 | “What do you remember?” | Shows saved facts and the shortcut count. |
 
-Start Brodi and wait for **“Listening with OpenAI.”** Then speak. **“Hey bro” is optional.** Say **“cancel”** to dismiss a pending question or action.
+Start Brodi and wait for the short rising chime and **“Listening.”** Then speak. **“Hey bro” is optional.** Say **“cancel”** to dismiss a pending question or action.
 
-App support depends on the platform, installed apps, and permissions. Windows has tray controls and native UI Automation; macOS uses AppleScript and system permissions.
+### Mute during a demo
+
+Press **Ctrl+Space** on Windows or **Control+Space (⌃Space)** on macOS from any app to toggle Brodi's microphone. A short **falling chime means muted**; a **rising chime means listening**. The tray and activity view show the current microphone state and shortcut hint. The Mac shortcut uses Control, not Command.
+
+While muted, Brodi drops incoming microphone audio before transcription and ignores voice commands, including “hey bro” and confirmation answers. Other apps can still use the microphone, and Brodi can finish an already accepted task and play its reply. Unmuting discards partial speech; wait for the rising chime, then start a fresh command. The cues are generated locally and need no speech API call.
+
+If the shortcut is unavailable, Brodi stays muted and explains the problem. Use the tray's microphone control as a fallback. On macOS, check **System Settings → Keyboard → Keyboard Shortcuts → Input Sources** for a conflicting Control+Space binding; on either platform, close another app using the shortcut and restart Brodi. Stopping Brodi releases the shortcut.
+
+App support depends on the platform, installed apps, and permissions. Both platforms have desktop tray controls. Windows uses native UI Automation; macOS uses AppleScript and system permissions.
 
 **Ready for a live demo:** [55 ready-made command examples and the stage runbook](docs/DEMO.md).
 Windows checks measured **24 ms** to dispatch GitHub Trending and **101 ms** to repeat
@@ -106,7 +114,7 @@ One key covers Brodi's OpenAI features. Local console mode does not need a LiveK
 .\brodi.cmd start
 ```
 
-Double-clicking `brodi.cmd` also starts Brodi. Right-click its tray icon to start, stop, restart, show activity, or open the log.
+Double-clicking `brodi.cmd` also starts Brodi. Right-click its tray icon to mute the microphone, start, stop, restart, show activity, or open the log.
 
 ```powershell
 .\brodi.cmd status --once  # Check the current state
@@ -120,7 +128,7 @@ Double-clicking `brodi.cmd` also starts Brodi. Right-click its tray icon to star
 uv run python agent.py console
 ```
 
-Allow microphone access and any requested app Automation permissions. Native input may also need Accessibility access. For background controls, run `chmod +x brody`, then use `./brody start`, `./brody status`, and `./brody stop`.
+Allow microphone access and any requested app Automation permissions. Native input may also need Accessibility access. For background controls, run `chmod +x brody`, then use `./brody start`, `./brody status`, and `./brody stop`. Click the menu-bar microphone to mute, restart, or open activity. `./brody tray` opens the controls without starting the microphone.
 
 ### Always available with "Hey bro"
 
@@ -194,7 +202,7 @@ The two stage examples have direct track links; other songs use Spotify's search
 
 Brodi is a **hackathon prototype** that can run local scripts and interact with signed-in websites. Keep the default safety policy enabled and try it with non-sensitive tasks first. It checks actions, asks before sensitive changes, and applies the same checks to saved shortcuts.
 
-**Start and Stop control the voice session.** While it is active, microphone audio is sent to OpenAI for transcription. Relevant command and app or page context may also be sent for interpretation. Spoken replies are AI-generated. An optional wake phrase does not make listening local.
+**Start and Stop control the voice session; Control+Space mutes its input.** While listening, microphone audio is sent to OpenAI for transcription. Muted audio is discarded locally; the microphone device may remain open. Relevant command and app or page context may also be sent for interpretation. Spoken replies are AI-generated. An optional wake phrase does not make listening local.
 
 Facts and shortcuts are stored in an **unencrypted local SQLite database** under `%LOCALAPPDATA%/Brodi` on Windows or `~/Library/Application Support/Brodi` on macOS. Activity and logs can contain commands, results, and page text. Treat them as personal data, and keep keys, local settings, and runtime files out of Git.
 
@@ -224,7 +232,7 @@ When contributing, start with an existing command or tool, keep platform and app
 | [Architecture](docs/ARCHITECTURE.md) | Modules, routing, execution, and trust boundaries. |
 | [Implementation](docs/IMPLEMENTATION.md) | Memory, workflows, native input, tests, and validation limits. |
 | [Performance](docs/PERFORMANCE.md) | Profiling, measured bottlenecks, and presentation scripts. |
-| [Activity](docs/ACTIVITY.md) and [Windows tray](docs/TRAY.md) | Progress, logs, and assistant controls. |
+| [Activity](docs/ACTIVITY.md) and [Desktop tray](docs/TRAY.md) | Progress, logs, and assistant controls. |
 | [Personas](docs/PERSONAS.md) | Brodi's voice, short replies, and interaction rules. |
 
 [MIT licensed](LICENSE). Built with OpenAI, LiveKit, SQLite, pywinauto, pystray, and native desktop automation.

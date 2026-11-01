@@ -10,8 +10,8 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "websockets>=14.0",
     "pywinauto>=0.6.8; sys_platform == 'win32'",
-    "pystray>=0.19.5; sys_platform == 'win32'",
-    "Pillow>=11.0; sys_platform == 'win32'",
+    "pystray>=0.19.5; sys_platform == 'win32' or sys_platform == 'darwin'",
+    "Pillow>=11.0; sys_platform == 'win32' or sys_platform == 'darwin'",
     "sounddevice>=0.5",
     "PyYAML>=6.0",
 ]

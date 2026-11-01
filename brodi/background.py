@@ -261,11 +261,11 @@ def run(root: Path = ROOT) -> None:
         temporary.write_text(json.dumps(state), encoding="utf-8")
         temporary.replace(data / "process.json")
         try:
-            if sys.platform == "win32" and flag("BRODI_TRAY"):
+            if sys.platform in {"win32", "darwin"} and flag("BRODI_TRAY"):
                 subprocess.Popen(
                     [service_command(root)[0], "-m", "brodi.tray"],
                     cwd=root,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             supervise(AgentController(root), stop, data / "stop")
         finally:
