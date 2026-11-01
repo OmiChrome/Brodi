@@ -205,7 +205,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "console" and flag("BRODI_LOCAL_WAKE"):
+    if len(sys.argv) > 1 and sys.argv[1] == "console" and flag("BRODI_LOCAL_WAKE", default=sys.platform != "darwin"):
         import argparse
 
         import sounddevice as sd

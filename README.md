@@ -54,8 +54,10 @@ Brodi inverts this. Code owns the workflow and hands the Decisions API small, ty
 
 ## Voice: local activation, brief replies
 
-Default console mode uses WebRTC VAD plus Vosk offline keyword spotting and command
-transcription. A custom openWakeWord ONNX model can be supplied. Press **Ctrl+Alt+B**
+On Windows and Linux, console mode uses WebRTC VAD plus Vosk offline keyword spotting
+and command transcription. On macOS, console mode uses the LiveKit cloud STT path because
+Vosk does not publish an Apple silicon wheel. A custom openWakeWord ONNX model can be supplied
+where local wake is available. Press **Ctrl+Alt+B**
 for the hotkey fallback. Brodi replies briefly: “Gotcha,” “Yo bro,” or “Got it.”
 OpenAI TTS uses `gpt-4o-mini-tts` and voice `onyx`; `BRODI_TTS_ENABLED=false` disables it.
 
@@ -70,7 +72,7 @@ defaults unless you explicitly intend to change them.
 ```bash
 uv sync
 cp .env.example .env.local   # OPENAI_API_KEY is the only required secret
-uv run python -m brodi.wake --download-model  # one-time offline speech asset download
+uv run python -m brodi.wake --download-model  # Windows/Linux local wake only
 ```
 
 - macOS asks for Automation access per app the first time. Grant it in System Settings ▸

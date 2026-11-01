@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -220,7 +220,7 @@ dependencies = [
     { name = "pywinauto", marker = "sys_platform == 'win32'" },
     { name = "pyyaml" },
     { name = "sounddevice" },
-    { name = "vosk" },
+    { name = "vosk", marker = "sys_platform != 'darwin'" },
     { name = "webrtcvad-wheels" },
     { name = "websockets" },
 ]
@@ -245,7 +245,7 @@ requires-dist = [
     { name = "pywinauto", marker = "sys_platform == 'win32'", specifier = ">=0.6.8" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sounddevice", specifier = ">=0.5" },
-    { name = "vosk", specifier = ">=0.3.45" },
+    { name = "vosk", marker = "sys_platform != 'darwin'", specifier = ">=0.3.45" },
     { name = "webrtcvad-wheels", specifier = ">=2.0.14" },
     { name = "websockets", specifier = ">=14.0" },
 ]

@@ -13,7 +13,7 @@ dependencies = [
     "pystray>=0.19.5; sys_platform == 'win32'",
     "Pillow>=11.0; sys_platform == 'win32'",
     "sounddevice>=0.5",
-    "vosk>=0.3.45",
+    "vosk>=0.3.45; sys_platform != 'darwin'",
     "webrtcvad-wheels>=2.0.14",
     "pynput>=1.7.7",
     "PyYAML>=6.0",
