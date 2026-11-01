@@ -1,17 +1,22 @@
-<img align="right" src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped in a handshake" width="220" />
+<h1 align="center">Brodi</h1>
+<p align="center"><strong>Your bro for getting things done.</strong><br />Say the task. See it happen.</p>
 
-<h1 align="left">Brodi</h1>
-<p align="left"><strong>Your bro for getting things done.</strong><br />Say the task. See it happen.</p>
+<p align="center">
+  <img src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped in a handshake" width="240" />
+</p>
 
-Brodi is a voice assistant that takes action on your computer. Open an app, search YouTube, type into Notepad, or run a short routine, just by asking. Built for **Windows 11 and macOS**, with OpenAI speech and decision-making.
+<p align="center">
+  Brodi is a voice assistant that takes action on your computer.<br />
+  Open an app, search YouTube, type into Notepad, or run a short routine, just by asking.<br />
+  Built for <strong>Windows 11 and macOS</strong>, with OpenAI speech and decision-making.
+</p>
 
-> **“Hey bro, open Chrome and go to github.com.”**
->
-> Brodi runs the steps, shows its progress, and replies: **“Got it.”**
+<p align="center">
+  <em>“Hey bro, open Chrome and go to github.com.”</em><br />
+  Brodi runs the steps, shows its progress, and replies: <strong>“Got it.”</strong>
+</p>
 
-**[Quick start](#quick-start)** · **[Demo](#try-the-demo)** · **[How it works](#how-it-works)** · **[Docs](docs/README.md)**
-
-<br clear="right" />
+<p align="center"><a href="#quick-start"><strong>Quick start</strong></a> · <a href="#how-it-works"><strong>How it works</strong></a></p>
 
 ## Small tasks should take a small instruction
 
@@ -115,42 +120,20 @@ uv run python -m brodi.cli --memory list
 
 `--dry` previews routing without executing or learning tools; unfamiliar requests may still call a model. `--doctor` checks setup and browser access without recording audio or making model calls.
 
-## Try the demo
-
-Keep the activity view next to Chrome and a clean Notepad window.
-
-1. Say **“Hey bro, open Notepad.”** Show the app opening on Windows.
-2. Say **“Type hello world into Notepad.”** Show the entered text.
-3. Say **“Search YouTube,”** then answer **“lofi beats.”** Show the follow-up becoming a search.
-4. Say **“Run presentation workspace.”** Watch Chrome and GitHub open through a short plan.
-5. Repeat the workspace request to demonstrate a saved shortcut, then stop the assistant from the tray.
-
-The repository also includes **six scripted demo scenarios** and a profiler:
-
-```powershell
-.\scripts\demo.ps1                 # Rehearse without opening apps or calling APIs
-.\scripts\demo.ps1 -Run -Repeat 2  # Run the demo with real apps and tabs
-.\scripts\profile.ps1              # Measure local routing and execution stages
-```
-
-Portable equivalents: `uv run python -m brodi.demo` and `uv run python -m brodi.performance`. Demo runs use temporary memory and leave your saved shortcuts alone.
-
-See the [hackathon pitch and walkthrough](docs/HACKATHON.md) and [profiling guide](docs/PERFORMANCE.md) for presentation notes, reports, and measurement limits. Reported dispatch timings exclude speech recognition, page loading, and spoken playback.
-
 ## How it works
 
 ```mermaid
-flowchart TD
-    A["You say a task"] --> B["OpenAI transcribes your voice"]
-    B --> C["Brodi checks shortcuts and common commands"]
-    C --> D["OpenAI Decisions helps when interpretation is needed"]
-    C --> E["Validate the action and ask for approval if needed"]
-    D --> E
-    E --> F["Run desktop tools or browser controls"]
-    F --> G["Show progress and give a short reply"]
+flowchart LR
+    A["Audio input<br/>LiveKit Agents"] --> B["OpenAI STT<br/>gpt-live-transcribe"]
+    B --> C["Intent routing<br/>Python parser · SQLite<br/>OpenAI Decisions"]
+    C --> D["Action validation<br/>Pydantic · policy gates<br/>User confirmation"]
+    D --> E["Tool execution<br/>PowerShell · pywinauto<br/>AppleScript · Chrome CDP"]
+    E --> F["Speech + activity<br/>OpenAI TTS<br/>JSONL event log"]
 ```
 
-**The key idea: let code handle familiar actions and use AI where interpretation helps.** Brodi uses PowerShell and Windows UI Automation on Windows, AppleScript on macOS, and Chrome's page controls for browser tasks.
+**A Python asyncio state machine coordinates the pipeline.** SQLite shortcuts and the direct command parser handle familiar requests; OpenAI Decisions handles model-based tool selection and argument extraction. Pydantic schemas, policy checks, and confirmation gates validate actions before execution.
+
+**Platform tools carry out the action.** Windows uses PowerShell and pywinauto UI Automation, macOS uses AppleScript, and browser workflows use Chrome DevTools Protocol (CDP) over WebSockets to inspect and operate DOM controls. OpenAI Responses with structured outputs handles planning and optional tool generation. OpenAI TTS speaks the result while the JSONL activity journal records progress.
 
 Short desktop plans default to **five action attempts**, **eight seconds per step**, and a **forty-second execution budget**. Optional tool generation proposes and checks a new tool, then asks for confirmation before its first run.
 
