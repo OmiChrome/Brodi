@@ -80,7 +80,7 @@ class BrodiAgent(Agent):
 
         if outcome.stop:
             try:
-                await self.session.say(outcome.speak or "Goodbye.", add_to_chat_ctx=False)
+                await self.session.say(outcome.speak or "Goodbye.", add_to_chat_ctx=False, allow_interruptions=False)
             except RuntimeError:
                 pass
             get_job_context().shutdown(reason="user asked brodi to stop")
@@ -89,7 +89,7 @@ class BrodiAgent(Agent):
         if outcome.speak:
             # Speak the deterministic result and keep it in history so the LLM has context later.
             try:
-                self.session.say(outcome.speak, add_to_chat_ctx=True)
+                await self.session.say(outcome.speak, add_to_chat_ctx=True, allow_interruptions=False)
             except RuntimeError as exc:  # session closing mid-turn
                 log.warning("could not speak result: %s", exc)
         raise StopResponse()
@@ -156,7 +156,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         greeting = "Brodi ready. Tell me what to do."
     if not policy.ENABLED:
         greeting += " Warning: the safety policy is off."
-    session.say(greeting, add_to_chat_ctx=False)
+    session.say(greeting, add_to_chat_ctx=False, allow_interruptions=False)
 
 
 if __name__ == "__main__":
