@@ -25,7 +25,7 @@ from .activity import ActivityLog
 from .api_errors import report_api_error
 from .applescript import ContextPoller, run_applescript
 from .automations import predefined_plan
-from .calculator import CalculatorSession, mac_script, prepare
+from .calculator import CalculatorSession, mac_script, prepare, request_expression
 from .config import flag
 from .generator import DUPLICATE, ToolGenerator
 from .memory import MemoryStore
@@ -163,9 +163,13 @@ class DynamicMacAgent:
                 log.exception("command failed")
                 self.pending, self.pending_question, self.state = None, None, State.IDLE
                 self._pending_plan = None
-                outcome = Outcome(speak="That didn't work. Please try again.")
+                reason = str(exc).strip() or type(exc).__name__
+                outcome = Outcome(
+                    speak=f"That didn't work: {_short(reason)}. Please try again.",
+                    observation={"tool_ok": False, "error": reason[:300]},
+                )
                 if not report_api_error(exc, self.activity):
-                    self._event("error", "The task failed unexpectedly; ready to try again")
+                    self._event("error", "The task failed unexpectedly; ready to try again", reason=reason)
             if outcome.speak:
                 self._event("output", outcome.speak)
             if outcome.executed:
@@ -423,6 +427,16 @@ class DynamicMacAgent:
                     else None
                 )
                 answer = utterance
+                if question.tool and question.tool.runner == "calculator" and question.missing_arg == "expression":
+                    prefix = question.args.get("expression", "") if question.kind == "clarify" else ""
+                    combined = "calculate " + prefix + " " + utterance
+                    answer = request_expression(combined)
+                    if answer is None:
+                        partial = request_expression(combined, incomplete=True)
+                        if partial is not None:
+                            question.args["expression"] = partial
+                        self.pending_question = (question, time.time())
+                        return Outcome(route=question, speak=commands.CALCULATION_QUESTION)
                 if spec and spec.kind == "enum":
                     choices = spec.resolve_criteria(ctx)
                     answer = next((c for c in choices if c.lower() == utterance.lower().rstrip(".!?")), "")
@@ -565,7 +579,7 @@ class DynamicMacAgent:
             return await self._run_plan(plan, utterance)
 
         if route.kind == "chat":
-            outcome.speak = "Commands only."
+            outcome.speak = commands.TASK_HINT
             return outcome
 
         if route.kind == "stop":

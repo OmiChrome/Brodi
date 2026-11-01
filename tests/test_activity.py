@@ -1,11 +1,109 @@
+import ctypes
 import io
 import json
 import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
+from unittest.mock import Mock
 
+import pytest
+
+from brodi import activity
 from brodi.activity import ActivityLog, JournalReader, clean, render_event, view
+
+
+@pytest.mark.parametrize(
+    "available,muted,message,label,color",
+    [
+        (True, True, "Mic muted", "MUTED", "41"),
+        (True, False, "Listening for Hey bro", "LISTENING", "42"),
+        (True, True, "Resuming microphone", "RESUMING", "43"),
+        (False, True, "Mic muted", "CONNECTING", "43"),
+    ],
+)
+def test_mic_status_has_explicit_label_and_color(available, muted, message, label, color):
+    event = {
+        "time": 1,
+        "kind": "status",
+        "message": message,
+        "details": {"mic_available": available, "mic_muted": muted, "hotkey_available": True},
+    }
+    status = activity.microphone_status(event)
+    assert status.label == label and status.color.endswith(color)
+    text = render_event(event, color=True)
+    assert label in text and "MIC" in text
+    assert "Mic muted:" not in text and "Hotkey available:" not in text
+    assert "\x1b" not in render_event(event)
+
+
+def test_mic_shortcut_failure_shows_tray_fallback():
+    status = activity.microphone_status(
+        {"message": "Mic muted", "details": {"mic_available": True, "mic_muted": True, "hotkey_available": False}}
+    )
+    assert "tray" in status.hint and "shortcut unavailable" in status.hint
+
+
+def test_live_banner_keeps_current_mic_outside_tail_and_updates(monkeypatch, tmp_path):
+    journal = ActivityLog(tmp_path / "events")
+    journal.emit("status", "Mic muted", mic_available=True, mic_muted=True, hotkey_available=True)
+    journal.emit("action", "Opening Calculator")
+    monkeypatch.setattr(activity, "_supports_color", lambda stream: True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO())
+    monkeypatch.setattr(activity.shutil, "get_terminal_size", lambda *args: os.terminal_size((80, 24)))
+    updates = iter([("Resuming microphone", True), ("Listening for Hey bro", False)])
+
+    def tick(seconds):
+        update = next(updates, None)
+        if update is None:
+            raise KeyboardInterrupt
+        journal.emit("status", update[0], mic_available=True, mic_muted=update[1], hotkey_available=True)
+        journal.emit("action", "Opening Calculator")
+
+    monkeypatch.setattr(activity.time, "sleep", tick)
+    output = io.StringIO()
+    view(journal.path, tail=1, stream=output)
+    frames = output.getvalue().split("\x1b[H")[1:]
+    for frame, label in zip(frames, ("MUTED", "RESUMING", "LISTENING"), strict=True):
+        assert f"MIC {label}" in frame.splitlines()[2]
+        assert "Opening Calculator" in frame
+    assert "\x1b[?25h\x1b[?1049l" in output.getvalue()
+    assert output.getvalue().endswith("Activity view closed. Brodi keeps running.\n")
+
+
+@pytest.mark.parametrize("query_ok,enable_ok,expected", [(1, 1, True), (0, 1, False), (1, 0, False)])
+def test_windows_console_enables_ansi_or_falls_back(monkeypatch, query_ok, enable_ok, expected):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
+    monkeypatch.setitem(sys.modules, "msvcrt", SimpleNamespace(get_osfhandle=lambda fd: 0x123456789))
+
+    def get_mode(handle, mode):
+        mode._obj.value = 3
+        return query_ok
+
+    api = SimpleNamespace(GetConsoleMode=Mock(side_effect=get_mode), SetConsoleMode=Mock(return_value=enable_ok))
+    monkeypatch.setattr(ctypes, "WinDLL", Mock(return_value=api), raising=False)
+    stream = Mock(isatty=lambda: True, fileno=lambda: 1)
+    assert activity._supports_color(stream) is expected
+    if query_ok:
+        api.SetConsoleMode.assert_called_once_with(0x123456789, 7)
+    else:
+        api.SetConsoleMode.assert_not_called()
+
+
+@pytest.mark.parametrize("setting,value", [("NO_COLOR", "1"), ("NO_COLOR", ""), ("TERM", "dumb")])
+def test_color_opt_out_never_writes_terminal_controls(monkeypatch, tmp_path, setting, value):
+    monkeypatch.setenv(setting, value)
+
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Terminal()
+    view(tmp_path / "missing", follow=False, stream=output)
+    assert "\x1b" not in output.getvalue()
 
 
 def test_journal_records_ordered_input_action_and_output(tmp_path):

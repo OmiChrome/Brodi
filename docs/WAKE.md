@@ -35,10 +35,11 @@ running, including before the wake phrase.** This uses the configured cloud
 transcription service, needs internet access, and incurs API usage. Wake gating
 controls which transcribed requests reach the tool router; it is not a local
 wake-word model. Background mode uses the cloud pipeline and retains the 1.25x
-Onyx voice setting. Recognition and speech are English-only; acknowledgments,
-clarifications, failures, and startup speech use at most two words, except for the
-wake acknowledgement above. The beep is generated locally and uses no speech API.
-Full results and the specific details of actions awaiting confirmation remain in the activity
+Onyx voice setting. Recognition and speech are English-only; acknowledgments and
+startup speech stay brief. Calculation clarifications and failures explain what
+is missing or what went wrong in a short sentence. The wake acknowledgement is
+followed by a beep generated locally without a speech API. Full results
+and the specific details of actions awaiting confirmation remain in the activity
 feed. "Review action" means inspect those details before answering yes.
 
 - `brodi stop` on Windows or `./brody stop` on macOS stops the supervisor and

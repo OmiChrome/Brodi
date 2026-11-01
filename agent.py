@@ -38,10 +38,9 @@ from brodi.voice import WAKE_REPLY, VoiceGate, english_script, spoken_reply  # n
 
 log = logging.getLogger("brodi.voice")
 
-INSTRUCTIONS = """Brodi executes English desktop commands. It is not a conversational assistant.
-Spoken output is English only. Task replies have at most two words.
-On wake, say "Yes sir, I'm listening." followed by the ready chime.
-All actions go through the tool router."""
+INSTRUCTIONS = """Brodi executes English desktop tasks through the tool router.
+Use brief English acknowledgements on success. Explain failures and missing details clearly in a short sentence.
+On wake, say "Yes sir, I'm listening." followed by the ready chime."""
 
 VOICE_MODE = os.environ.get("BRODI_VOICE_MODE", "pipeline")
 STT_MODEL = os.environ.get("BRODI_STT_MODEL", DEFAULT_STT_MODEL)
@@ -246,7 +245,10 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     ctx.add_shutdown_callback(_close)
 
     log.info(
-        "pipeline: command-only language=en max_task_reply_words=2 stt=%s tts=%s voice=%s", STT_MODEL, TTS_MODEL, VOICE
+        "pipeline: language=en brief_acknowledgements=true spoken_errors=true stt=%s tts=%s voice=%s",
+        STT_MODEL,
+        TTS_MODEL,
+        VOICE,
     )
     activity.emit("status", "Connecting microphone and speaker")
     try:

@@ -17,6 +17,7 @@ from typing import Any
 
 from . import commands, os_backend
 from .applescript import MacContext
+from .calculator import request_expression
 from .decisions import ChoiceQuestion, DecisionsClient, PredicateQuestion
 from .profiler import profiled
 from .registry import MAX_CHOICE_OPTIONS, Tool, ToolRegistry
@@ -147,7 +148,9 @@ class JevRouter:
                     "Which tool best fulfils the request? Prefer a tool scoped to `frontmost_app` "
                     "when the request is ambiguous between apps. A website, URL, or web search "
                     "goes to a browser tool, not to opening an application. Closing, switching or reloading "
-                    "tabs and windows is a browser-control tool, never a web task."
+                    "tabs and windows is a browser-control tool, never a web task. "
+                    "Arithmetic questions such as 'what is 500 times 450' are requests to use Calculator, "
+                    "not chat. A request to calculate with missing operands needs a clarification."
                 ),
                 criteria=criteria,
             )
@@ -259,6 +262,15 @@ class JevRouter:
                 text_specs = [s for s in tool.args if s.kind == "text"]
                 if text_specs:
                     await self._fill_text_args(utterance, ctx, tool, text_specs, route)
+                if tool.runner == "calculator":
+                    expression = request_expression(route.args.get("expression", ""))
+                    if expression is not None:
+                        route.args["expression"] = expression
+                    else:
+                        route.kind = "clarify"
+                        route.args = {"expression": request_expression(utterance, incomplete=True) or ""}
+                        route.reply = commands.CALCULATION_QUESTION
+                        route.missing_arg = "expression"
 
         route.latency_ms = (time.perf_counter() - t0) * 1000
         log.info(

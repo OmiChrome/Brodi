@@ -58,9 +58,18 @@ WORDS = dict(
 
 
 def _number_words(match: re.Match) -> str:
+    words = match[0].lower().split()
+    # Common spoken hundreds: "four fifty" and "four twenty five".
+    if (
+        len(words) in {2, 3}
+        and 1 <= WORDS.get(words[0], 0) <= 9
+        and 10 <= WORDS.get(words[1], 0) <= 90
+        and (len(words) == 2 or (WORDS[words[1]] >= 20 and 1 <= WORDS.get(words[2], 0) <= 9))
+    ):
+        return str(WORDS[words[0]] * 100 + sum(WORDS[word] for word in words[1:]))
     total, current = 0, 0
     previous = None
-    for word in match[0].lower().split():
+    for word in words:
         if word in WORDS:
             if previous in WORDS and not (WORDS[previous] >= 20 and WORDS[word] < 10):
                 raise ValueError("Please say that number as digits or a complete number.")
@@ -105,12 +114,25 @@ def normalize_expression(text: str) -> str:
     return text.strip()
 
 
-def request_expression(text: str) -> str | None:
+def request_expression(text: str, *, incomplete: bool = False) -> str | None:
     """Conservative math-only questions; unrelated 'what is' questions stay with chat."""
-    text = re.sub(r"\s+(?:in|using|on)\s+(?:the\s+)?calculator$", "", text.strip().replace("’", "'"), flags=re.I)
-    explicit = re.match(r"^(?:calculate|compute|work out|what is|what's|whats)\s+(.+)$", text, re.I)
-    if explicit:
-        text = explicit[1]
+    text = text.strip().replace("’", "'").rstrip(".!?")
+    text = re.sub(r"\s+(?:in|using|on)\s+(?:the\s+)?calculator$", "", text, flags=re.I)
+    text = re.sub(r"\s+for me$", "", text, flags=re.I)
+    text = re.sub(r"^(?:um|uh)[,\s]+", "", text, flags=re.I)
+    explicit = False
+    prefix = re.compile(
+        r"^(?:(?:can|could|would|will) you\s+(?:please\s+)?)?"
+        r"(?:calculate|compute|work out|what is|what's|whats|how much is)\b"
+        r"(?:\s+(?:this|something))?(?:\s+for me)?[\s,.:;!?]*",
+        re.I,
+    )
+    # Speech often includes both: "calculate for me? What is ...".
+    while match := prefix.match(text):
+        explicit = True
+        text = text[match.end() :]
+    if not text:
+        return "" if explicit and incomplete else None
     for pattern, template in (
         (r"multiply (.+) by (.+)", "({0})*({1})"),
         (r"divide (.+) by (.+)", "({0})/({1})"),
@@ -128,6 +150,15 @@ def request_expression(text: str) -> str | None:
         return None
     if not explicit and not re.search(r"\d\s*[+*/%\-]|\*\*", expression):
         return None
+    if not incomplete:
+        try:
+            tree = ast.parse(expression, mode="eval")
+        except SyntaxError:
+            return None
+        # Keep a lone operand pending, so a pause after "five hundred" doesn't
+        # execute it before the user has finished saying "times four fifty".
+        if not any(isinstance(node, ast.BinOp) for node in ast.walk(tree)):
+            return None
     return expression
 
 

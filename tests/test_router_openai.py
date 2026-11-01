@@ -3,6 +3,9 @@
 import asyncio
 import json
 
+import pytest
+
+from brodi import commands
 from brodi.applescript import MacContext
 from brodi.decisions import ChoiceAnswer, DecisionResponse, PredicateAnswer
 from brodi.registry import ArgSpec, Tool, ToolRegistry
@@ -154,3 +157,30 @@ def test_router_state_includes_browser_memory(tmp_path):
     state, _ = router.client.calls[0]
     assert state["recent_browser_task"] == {"goal": "search bags", "status": "done"}
     assert json.dumps(state)  # JSON-serialisable for the decisions API
+
+
+@pytest.mark.parametrize(
+    "utterance,selected,kind,expression",
+    [
+        ("I need you to figure out 500 times 450", "500 times 450", "tool", "500 * 450"),
+        ("Please do a calculation", "__none__", "clarify", ""),
+    ],
+)
+def test_model_selected_calculator_normalizes_expression_or_asks(tmp_path, utterance, selected, kind, expression):
+    tool = Tool(
+        name="calculate",
+        description="Use Calculator for arithmetic questions.",
+        script="",
+        runner="calculator",
+        args=[ArgSpec(name="expression", kind="text", instructions="The complete arithmetic expression.")],
+    )
+
+    def respond(state, questions):
+        name, value = ("intent", "calculate") if "intent" in questions else ("expression", selected)
+        return DecisionResponse({name: ChoiceAnswer(value, 0.95, {value: 0.95})}, {})
+
+    router = JevRouter(_registry(tmp_path, [tool]), client=FakeClient(respond))
+    route = asyncio.run(router.route(utterance, CTX))
+    assert route.kind == kind and route.args == {"expression": expression}
+    if kind == "clarify":
+        assert route.reply == commands.CALCULATION_QUESTION and route.missing_arg == "expression"

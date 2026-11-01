@@ -14,6 +14,7 @@ from brodi.applescript import MacContext, ScriptResult
 from brodi.calculator import CalculatorSession, mac_script, prepare
 from brodi.calculator_uia import display_number, press_calculation
 from brodi.registry import ToolRegistry
+from brodi.voice import spoken_reply
 
 
 @pytest.mark.parametrize(
@@ -31,6 +32,14 @@ from brodi.registry import ToolRegistry
         ("what is twenty percent of five hundred", "100"),
         ("what is 20% of 500", "100"),
         ("what is five hundred times four hundred and fifty", "225000"),
+        ("what is 500 times 450", "225000"),
+        ("what is five hundred times four fifty", "225000"),
+        ("Bro, what is five hundred times four twenty?", "210000"),
+        ("Brodi, can you calculate for me? What is five hundred times four fifty?", "225000"),
+        ("Can you calculate what is five hundred times four hundred and fifty", "225000"),
+        ("could you please calculate 500 times 450 for me", "225000"),
+        ("how much is 500 times 450", "225000"),
+        ("calculate four twenty five times two", "850"),
         ("what is 5.5 divided by 2", "2.75"),
         ("calculate -4 + 0.5", "-3.5"),
         ("calculate 2 to the power of 10", "1024"),
@@ -43,6 +52,90 @@ def test_math_phrases_route_to_visible_calculator(phrase, answer):
     command = commands.parse_command(phrase)
     assert command and command.tool == "calculate"
     assert prepare(command.args["expression"]).expected == answer
+
+
+@pytest.fixture
+def calculator_agent(monkeypatch, tmp_path):
+    monkeypatch.setenv("BRODI_OS", "win32")
+    monkeypatch.setenv("BRODI_MEMORY_ENABLED", "false")
+    monkeypatch.setenv("BRODI_ENABLE_MULTI_STEP", "false")
+    agent = DynamicMacAgent(ToolRegistry(learned_path=tmp_path / "learned.json"), enable_learning=False)
+    agent.context._ctx = MacContext("Explorer", [], [])
+    calculations = []
+
+    async def calculate(self, expression, **kwargs):
+        calculations.append(expression)
+        return ScriptResult(True, json.dumps({"display": prepare(expression).expected, "verified": True}))
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Arithmetic must not need a model or generic desktop script")
+
+    monkeypatch.setattr(CalculatorSession, "calculate", calculate)
+    monkeypatch.setattr(agent.router.client, "evaluate", forbidden)
+    monkeypatch.setattr(agent_module, "run_applescript", forbidden)
+    return agent, calculations
+
+
+@pytest.mark.parametrize(
+    "turns",
+    [
+        ["calculate", "500 times 450"],
+        ["Can you calculate for me? What is five hundred times", "four hundred and fifty"],
+        ["Can you calculate what is five hundred", "times four fifty"],
+        ["calculate", "five hundred", "times", "four fifty"],
+        ["calculate 2 plus", "what is 500 times 450"],
+    ],
+)
+def test_calculation_survives_speech_pauses_without_losing_operands(calculator_agent, turns):
+    agent, calculations = calculator_agent
+
+    async def scenario():
+        for turn in turns[:-1]:
+            result = await agent.handle(turn)
+            assert not result.executed and not calculations
+            assert agent.pending_question[0].missing_arg == "expression"
+            assert spoken_reply(result, missing="expression") == commands.CALCULATION_QUESTION
+        result = await agent.handle(turns[-1])
+        assert result.executed and result.route.tool.name == "calculate"
+        assert json.loads(result.observation["output"])["display"] == "225000"
+        assert spoken_reply(result) == "Got it."
+        assert agent.pending_question is None
+        await agent.aclose()
+
+    asyncio.run(scenario())
+    assert len(calculations) == 1
+
+
+def test_invalid_calculation_answer_keeps_question_until_valid_or_cancelled(calculator_agent):
+    agent, calculations = calculator_agent
+
+    async def scenario():
+        await agent.handle("calculate 500 times")
+        invalid = await agent.handle("I haven't decided")
+        assert not invalid.executed and agent.pending_question
+        assert not calculations
+        done = await agent.handle("450")
+        assert done.executed and json.loads(done.observation["output"])["display"] == "225000"
+        await agent.handle("calculate 2 plus")
+        cancelled = await agent.handle("cancel")
+        assert cancelled.speak == "Cancelled." and agent.pending_question is None
+        assert len(calculations) == 1
+        await agent.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_calculation_failure_speaks_the_actual_error(calculator_agent):
+    agent, calculations = calculator_agent
+
+    async def scenario():
+        result = await agent.handle("what is 500 divided by zero")
+        assert not result.executed and not calculations
+        assert result.observation["error"] == "Cannot divide by zero."
+        assert spoken_reply(result) == "Cannot divide by zero."
+        await agent.aclose()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(

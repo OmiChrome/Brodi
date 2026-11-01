@@ -5,27 +5,29 @@ an action tool, not a conversational assistant. English is the supported languag
 
 ## Speech rule
 
-Every spoken reply has **one or two words**. This includes startup, wake replies,
-progress, clarification, success, failure, confirmation cues, and shutdown.
-`brodi.voice.spoken_reply` selects fixed English phrases at the audio boundary.
-It does not truncate tool results or ask a model to summarize them.
+Startup, wake replies, progress, success, confirmation cues, and shutdown use
+brief acknowledgements. Calculation questions and failures use a short, useful
+English sentence. `brodi.voice.spoken_reply` speaks the actual error, redacts
+credentials, and limits error speech to 240 characters. Successful tool results
+stay in activity rather than being read aloud.
 
 | Situation | Spoken reply |
 | --- | --- |
 | Startup | "Ready." |
-| Wake phrase | "Listening." |
+| Wake phrase | "Yes sir, I'm listening." followed by the ready beep. |
 | Work in progress | "On it." (once per command) |
 | Successful action | "Got it." |
 | Missing search topic | "Search terms?" |
 | Missing app | "Which app?" |
+| Missing or unfinished calculation | "What should I calculate? Say the full expression." |
 | Other missing information | "More details?" |
 | Action awaiting approval | "Review action." |
 | User cancels | "Cancelled." |
-| Failed action | "Didn't work." |
-| Timed-out action | "Timed out." |
-| Policy blocks an action | "Action blocked." |
+| Failed action | The actual error, such as "Cannot divide by zero." |
+| Timed-out action | The timeout reason and suggested next step. |
+| Policy blocks an action | The reason the action was blocked. |
 | Detailed result | "Check activity." |
-| Casual conversation | "Commands only." |
+| Unrecognized task | "I couldn't understand the task. Ask me to open an app, search, or calculate." |
 | Unsupported script in a transcript | "English only." |
 | Stop | "Goodbye." |
 
@@ -43,8 +45,8 @@ preserved by keeping playback at the original sample rate. Speech is AI-generate
 The live cloud recognizer is pinned to English. Old language overrides cannot
 enable multilingual recognition. A script guard rejects non-Latin transcripts
 before action routing; this is not a complete language classifier. The intent
-router is instructed to accept English commands, and all spoken output comes
-from the fixed English vocabulary regardless of tool or page content.
+router is instructed to accept English commands. Successful page content stays
+in activity; failures are spoken as bounded English feedback.
 
 The LiveKit session has no conversational LLM or speech-to-speech chat mode.
 OpenAI Decisions still routes commands and supports the existing action planning.

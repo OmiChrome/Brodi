@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import textwrap
 import time
 import unicodedata
 from typing import TYPE_CHECKING
 
-from .commands import normalize
+from .activity import clean
+from .commands import CALCULATION_QUESTION, TASK_HINT, normalize
 
 if TYPE_CHECKING:
     from .agent import Outcome
@@ -24,11 +26,9 @@ def english_script(text: str) -> bool:
 
 
 def spoken_reply(outcome: Outcome, *, confirmation: bool = False, missing: str = "") -> str | None:
-    """Only fixed English phrases reach speech; full details remain in activity.
+    """Brief acknowledgements, useful questions, and the actual reason for failures.
 
-    Do not truncate arbitrary result text: that can hide a failure or accidentally
-    read a number, a foreign-language page, or a generated tool's long template.
-    Task replies have at most two words; the wake acknowledgement is explicit.
+    Successful tool output stays in activity rather than becoming arbitrary speech.
     """
     if outcome.stop:
         return "Goodbye."
@@ -39,6 +39,8 @@ def spoken_reply(outcome: Outcome, *, confirmation: bool = False, missing: str =
         return WAKE_REPLY
     if confirmation:
         return "Review action."
+    if missing == "expression":
+        return CALCULATION_QUESTION
     if missing:
         return {
             "query": "Search terms?",
@@ -53,7 +55,9 @@ def spoken_reply(outcome: Outcome, *, confirmation: bool = False, missing: str =
             "site": "Which site?",
         }.get(missing, "More details?")
     if outcome.handoff_to_llm or (route and route.kind == "chat"):
-        return "Commands only."
+        return TASK_HINT
+    if not outcome.executed and outcome.observation.get("error"):
+        return _spoken_detail(str(outcome.observation["error"]))
     if not text:
         return None
     if lower in {"cancelled.", "canceled."}:
@@ -61,18 +65,25 @@ def spoken_reply(outcome: Outcome, *, confirmation: bool = False, missing: str =
     if "expired" in lower:
         return "Please repeat."
     if "timed out" in lower or "timeout" in lower:
-        return "Timed out."
+        return _spoken_detail(text)
     if not outcome.executed:
         if "blocked" in lower or "policy" in lower:
-            return "Action blocked."
+            return _spoken_detail(text)
         if any(word in lower for word in ("didn't", "couldn't", "can't", "failed", "unavailable", "not installed")):
-            return "Didn't work."
+            return _spoken_detail(text)
         if "?" in text:
             return "More details?"
         return "Check activity."
     if route and route.tool and route.tool.speak not in {"done", "Got it.", "Gotcha.", "On it.", "Done."}:
         return "Check activity."
     return "Got it."
+
+
+def _spoken_detail(text: str) -> str:
+    text = " ".join(str(clean(text)).split())
+    if not english_script(text):
+        return "The task failed. Check the activity view for the error."
+    return textwrap.shorten(text, width=240, placeholder="...")
 
 
 class VoiceGate:

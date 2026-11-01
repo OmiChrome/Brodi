@@ -8,6 +8,7 @@ import pytest
 from test_voice_session import voice_entrypoint
 
 from brodi.agent import Outcome
+from brodi.commands import TASK_HINT
 from brodi.router import Route
 from brodi.voice import WAKE_REPLY, english_script, spoken_reply
 
@@ -19,22 +20,22 @@ from brodi.voice import WAKE_REPLY, english_script, spoken_reply
         (Outcome(speak="Hey bro, I'm listening."), {"confirmation": True}, WAKE_REPLY),
         (Outcome(route=Route("greeting")), {}, WAKE_REPLY),
         (Outcome(speak="Done with every requested step.", executed=True), {}, "Got it."),
-        (Outcome(speak="That didn't work. Please try again."), {}, "Didn't work."),
+        (Outcome(speak="That didn't work. Please try again."), {}, "That didn't work. Please try again."),
         (Outcome(speak="Cancelled."), {}, "Cancelled."),
         (Outcome(speak="That confirmation expired. Tell me the command again."), {}, "Please repeat."),
-        (Outcome(speak="That step timed out. Check the app before retrying."), {}, "Timed out."),
-        (Outcome(speak="That action is blocked by the safety policy."), {}, "Action blocked."),
+        (Outcome(speak="That step timed out. Check the app before retrying."), {}, "That step timed out. Check the app before retrying."),
+        (Outcome(speak="That action is blocked by the safety policy."), {}, "That action is blocked by the safety policy."),
         (Outcome(speak="Delete the chosen file?", executed=False), {"confirmation": True}, "Review action."),
         (Outcome(speak="What should I search for on YouTube?"), {"missing": "query"}, "Search terms?"),
         (Outcome(speak="Which app should I use?"), {"missing": "app"}, "Which app?"),
         (Outcome(speak="Where are you flying from?"), {"missing": "origin"}, "Which origin?"),
         (Outcome(speak="Which exact date should I use?"), {"missing": "exact_dates"}, "Which date?"),
-        (Outcome(speak="I got partway but couldn't verify the result."), {}, "Didn't work."),
+        (Outcome(speak="I got partway but couldn't verify the result."), {}, "I got partway but couldn't verify the result."),
         (Outcome(speak="An arbitrary long note or tool return value."), {}, "Check activity."),
         (Outcome(speak="नमस्ते दोस्त"), {}, "Check activity."),
         (Outcome(speak="Okay, stopping. Goodbye.", stop=True), {}, "Goodbye."),
-        (Outcome(handoff_to_llm=True), {}, "Commands only."),
-        (Outcome(route=Route("chat"), speak="Let's have a lengthy conversation."), {}, "Commands only."),
+        (Outcome(handoff_to_llm=True), {}, TASK_HINT),
+        (Outcome(route=Route("chat"), speak="Let's have a lengthy conversation."), {}, TASK_HINT),
         (Outcome(), {}, None),
     ],
 )
@@ -44,7 +45,7 @@ def test_spoken_feedback_preserves_state_without_reading_arbitrary_text(outcome,
     assert reply == expected
     assert outcome.speak == detailed  # Full result/approval details remain available to the activity UI.
     if reply:
-        assert reply == WAKE_REPLY or len(reply.split()) < 3
+        assert len(reply) <= 240
         assert reply.isascii()
 
 
@@ -61,12 +62,13 @@ def test_non_latin_transcripts_are_not_routed(text):
 @pytest.mark.parametrize(
     "outcome,expected",
     [
-        (Outcome(handoff_to_llm=True), "Commands only."),
+        (Outcome(handoff_to_llm=True), TASK_HINT),
         (Outcome(speak="Here is a very long response from an action.", executed=True), "Got it."),
-        (Outcome(speak="That didn't work: a long technical error follows."), "Didn't work."),
+        (Outcome(speak="That didn't work: Calculator is unavailable."), "That didn't work: Calculator is unavailable."),
+        (Outcome(speak="That didn't work.", observation={"error": "Cannot divide by zero."}), "Cannot divide by zero."),
     ],
 )
-def test_real_voice_hook_never_falls_through_to_chat_or_long_tts(monkeypatch, outcome, expected):
+def test_real_voice_hook_keeps_success_brief_and_explains_failures(monkeypatch, outcome, expected):
     entrypoint = voice_entrypoint(monkeypatch)
     monkeypatch.setenv("BRODI_WAKE_REQUIRED", "true")
     core = SimpleNamespace(pending=None, pending_question=None, handle=AsyncMock(return_value=outcome))
@@ -80,6 +82,14 @@ def test_real_voice_hook_never_falls_through_to_chat_or_long_tts(monkeypatch, ou
         speech.say.assert_awaited_once_with(expected, add_to_chat_ctx=False, allow_interruptions=False)
 
     asyncio.run(scenario())
+
+
+def test_spoken_errors_are_bounded_and_redact_credentials(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "private-error-test-credential")
+    error = "Unable to connect using private-error-test-credential. " + "Connection failed. " * 80
+    reply = spoken_reply(Outcome(observation={"error": error}))
+    assert "private-error-test-credential" not in reply and "[redacted]" in reply
+    assert len(reply) <= 240 and "Connection failed" in reply
 
 
 def test_non_english_voice_is_rejected_before_any_action(monkeypatch):

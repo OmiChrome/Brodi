@@ -62,8 +62,9 @@ streaming OpenAI transcription connection. A lightweight amplitude detector comm
 turns after 250 ms of quiet; it does not transcribe speech or load a neural model.
 The STT plugin uses this explicit detector and AgentSession uses `vad=None`, preventing
 the SDK's local Silero fallback. Recognition is pinned to English and the session has
-no conversational generation model. Speech uses fixed English phrases of at most two
-words; full results, failures, and confirmation details remain in the activity feed.
+no conversational generation model. Success speech uses brief English phrases;
+calculation clarifications and failures explain the missing detail or actual error.
+Full results and confirmation details remain in the activity feed.
 ?Hey bro? is optional (`BRODI_WAKE_REQUIRED=false`). Stop/Quit closes the voice session.
 The former Vosk runtime, installer, and local inference dependencies have been removed.
 `wake.py` now contains text-only prefix utilities used by tests and smoke probes.

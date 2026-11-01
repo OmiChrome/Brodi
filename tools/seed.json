@@ -779,7 +779,7 @@
   },
   {
     "name": "calculate",
-    "description": "Open Calculator, press its numeric and operator buttons, and leave the verified result visible. Do not speak the numeric answer.",
+    "description": "Handle arithmetic questions and calculation requests by opening Calculator, pressing its numeric and operator buttons, and leaving the verified result visible. Questions such as 'what is 500 times 450' are Calculator actions. Ask for the expression if it is missing or unfinished. Do not speak the numeric answer.",
     "runner": "calculator",
     "script": "",
     "speak": "Got it.",
@@ -787,7 +787,7 @@
       {
         "name": "expression",
         "kind": "text",
-        "instructions": "The requested expression."
+        "instructions": "Only the complete arithmetic expression, including every operand and operator. Exclude request wording such as 'calculate for me' or 'what is'. Select none if the expression is missing or unfinished."
       }
     ],
     "examples": [

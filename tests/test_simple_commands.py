@@ -11,6 +11,7 @@ from brodi.agent import DynamicMacAgent, State
 from brodi.applescript import MacContext, ScriptResult
 from brodi.registry import ToolRegistry
 from brodi.router import Route
+from brodi.voice import spoken_reply
 
 
 @pytest.fixture
@@ -242,7 +243,21 @@ def test_exception_does_not_kill_next_turn(assistant, monkeypatch):
     monkeypatch.setattr(agent.router, "route", fail)
     result = asyncio.run(agent.handle("something unusual"))
     assert not result.executed and "try again" in result.speak
+    assert spoken_reply(result) == "network unavailable"
     assert asyncio.run(agent.handle("Hey bro")).speak == "Hey bro, I'm listening."
+
+
+def test_unrecognized_task_explains_supported_actions(assistant, monkeypatch):
+    agent, scripts = assistant
+
+    async def chat(*args, **kwargs):
+        return Route("chat")
+
+    monkeypatch.setattr(agent.router, "route", chat)
+    result = asyncio.run(agent.handle("I don't know what to ask"))
+    assert not result.executed and not scripts
+    assert result.speak == commands.TASK_HINT
+    assert spoken_reply(result) == commands.TASK_HINT
 
 
 def test_expired_confirmation_cannot_run_old_action(assistant):

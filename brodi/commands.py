@@ -9,7 +9,10 @@ from urllib.parse import quote_plus, urlsplit
 from . import os_backend
 from .calculator import request_expression
 
-WAKE = re.compile(r"^(?:(?:hey|yo|hello|hi|okay|ok)[\s,]+(?:brodi|bro|brody)|brodi|brody)\b[\s,!.:;?-]*", re.I)
+TASK_HINT = "I couldn't understand the task. Ask me to open an app, search, or calculate."
+CALCULATION_QUESTION = "What should I calculate? Say the full expression."
+
+WAKE = re.compile(r"^(?:(?:hey|yo|hello|hi|okay|ok)[\s,]+(?:brodi|bro|brody)|brodi|brody|bro)\b[\s,!.:;?-]*", re.I)
 SITE_URLS = {
     "google": "https://www.google.com/",
     "youtube": "https://www.youtube.com/",
@@ -255,8 +258,10 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
                 else "louder"
             },
         )
-    if expression := request_expression(clean):
+    if (expression := request_expression(clean)) is not None:
         return Command("calculate", {"expression": expression})
+    if (expression := request_expression(clean, incomplete=True)) is not None:
+        return Command("calculate", {"expression": expression}, CALCULATION_QUESTION, "expression")
     if clean.lower() in {"search", "search for", "serach"}:
         return Command("chrome_open", {"site": "google", "query": ""}, "What should I search for?", "query")
     # Keep compound tasks in the browser agent, rather than dropping the second instruction.

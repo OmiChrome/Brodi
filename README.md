@@ -26,8 +26,8 @@ Opening apps, finding a video, and switching between windows can break your flow
 - **Keeps common tasks simple.** Familiar commands run directly, without a routing-model call.
 - **Remembers useful routines.** Eligible successful commands become local shortcuts that can be reused.
 - **Handles a few steps together.** Short workflows have time limits, limited retries, and approval checks.
-- **Shows its work.** A live activity feed displays your request, current action, and result.
-- **English commands, brief replies.** Speech is limited to one or two words: “Got it,” “Search terms?” or “Didn't work.” Full results and confirmation details stay in the activity feed.
+- **Shows its work.** The tray's live activity window keeps microphone status visible at the top: green when listening, red when muted, and amber while connecting or resuming. Your requests, actions, and results appear below.
+- **English tasks, clear feedback.** Successful actions get brief replies such as “Got it.” Brodi asks for missing calculation details and speaks the actual error when a task fails. Full results and confirmation details stay in the activity feed.
 
 Voice recognition still uses OpenAI, including when a command takes a local shortcut.
 
