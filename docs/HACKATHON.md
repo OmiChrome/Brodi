@@ -34,10 +34,12 @@ handles proposals and plans. Typed results are checked before reaching local exe
 ## A two-minute live demo
 
 For a faster demonstration, use the [60-second ready-made command sequence](DEMO.md).
-Its 51-phrase menu includes “close Notepad,” window controls, Calculator, folders, and
-searches. The latest 32-turn live run measured 2.5–105.8 ms **after transcription**, with
-zero routing-model calls; separate native state checks verified minimize/maximize/close.
-Show these numbers as dispatch measurements, alongside the real app result.
+Its 55-phrase menu includes “close Notepad,” window controls, visible calculations,
+GitHub Trending, and Spotify Web. Show **“what is 500 x 450?”** producing **225,000 in
+Calculator**, then close the app by voice. The repeat took 101 ms with display
+verification; first opening took 1.34 seconds. GitHub Trending dispatched in 24 ms.
+These measurements are **after transcription**, with zero routing-model calls.
+Spotify needs a separate live account rehearsal; its real audio check is still pending.
 
 1. **Start from the tray.** Show “Listening with OpenAI.” Say “open Chrome” directly,
    establishing that the user can speak immediately after starting the app.

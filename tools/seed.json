@@ -769,6 +769,15 @@
     ]
   },
   {
+    "name": "spotify_play",
+    "description": "Open Spotify Web and play a named song, optionally by a named artist. Verify the requested track is playing. Requires a signed-in Chrome profile and browser access.",
+    "runner": "spotify",
+    "script": "",
+    "speak": "Got it.",
+    "args": [{"name": "query", "kind": "text", "instructions": "Song title, optionally followed by 'by' and the artist. Ask if the song is missing."}],
+    "examples": ["play Mockingbird by Eminem", "play God's Plan by Drake on Spotify", "put on Blinding Lights by The Weeknd"]
+  },
+  {
     "name": "calculate",
     "description": "Open Calculator, press its numeric and operator buttons, and leave the verified result visible. Do not speak the numeric answer.",
     "runner": "calculator",

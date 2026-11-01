@@ -123,6 +123,7 @@ class DynamicMacAgent:
         self.last_args: dict[str, dict[str, str]] = {}  # tool name -> last used arguments (for "send her another")
         self._calculator: CalculatorSession | None = None
         self._calculator_warm: asyncio.Task | None = None
+        self._spotify = None
 
     @profiled("startup")
     async def start(self) -> None:
@@ -996,13 +997,19 @@ class DynamicMacAgent:
         t0 = time.perf_counter()
         result = None
         fast_launch = False
-        if tool.runner in {"builtin", "windows_fast", "calculator"} and tool.source != "seed":
+        if tool.runner in {"builtin", "windows_fast", "calculator", "spotify"} and tool.source != "seed":
             outcome.speak = "That native action is not in the reviewed tool catalog."
             return
         if tool.runner == "builtin":
             from .quick_actions import run
 
             result = run(tool.name, args)
+        if tool.runner == "spotify":
+            from .spotify import SpotifyPlayer
+
+            if self._spotify is None:
+                self._spotify = SpotifyPlayer()
+            result = await self._spotify.play(args.get("query", ""), timeout=min(20, self._script_timeout or 20))
         if tool.runner == "calculator":
             expression = args.get("expression", "")
             try:
@@ -1112,6 +1119,8 @@ BROWSER_OPENERS: dict[str, Callable[[dict[str, str]], str]] = {
 
 
 def _activity_action(tool: Tool, args: dict[str, str]) -> str:
+    if tool.name == "spotify_play":
+        return "Playing " + args.get("query", "your song") + " on Spotify"
     if tool.name == "open_app":
         return "Opening " + args.get("app", "the app")
     if tool.name == "quit_app":

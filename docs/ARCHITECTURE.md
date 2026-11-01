@@ -46,6 +46,8 @@ flowchart TD
     Policy --> Native[windows_desktop.py: reviewed Win32 actions]
     Policy --> Builtin[quick_actions.py: read-only helpers]
     Policy --> UIA[windows_uia.py: isolated native controls]
+    Policy --> Calculator[calculator.py / calculator_uia.py: buttons and display readback]
+    Policy --> Spotify[spotify.py: deterministic track search and verified playback]
     Policy --> Browser[browser_task.py: Chrome CDP loop]
     Policy --> Learn[generator.py: propose and validate tool]
     Learn --> Registry
@@ -67,6 +69,8 @@ Paths in this table are relative to the repository root.
 | [`brodi/__init__.py`](../brodi/__init__.py) | Lazy public export of `DynamicMacAgent`; avoids importing runtime defaults before configuration. |
 | [`brodi/config.py`](../brodi/config.py) | Load env files then optional YAML, preserve existing environment, parse boolean flags. |
 | [`brodi/models.py`](../brodi/models.py) | Luna defaults and stable system/schema prompt-cache keys. |
+| [`brodi/calculator.py`](../brodi/calculator.py), [`brodi/calculator_uia.py`](../brodi/calculator_uia.py) | Bounded arithmetic parsing, a reusable isolated Windows UIA worker, real Calculator button presses and numeric display verification; AppleScript input on macOS. |
+| [`brodi/spotify.py`](../brodi/spotify.py) | Song/artist matching, one owned Chrome tab in the configured profile, bounded CDP search/navigation and Play with track identity/readback checks. No model call. |
 | [`brodi/paths.py`](../brodi/paths.py) | Platform user-data locations and optional override. |
 | [`brodi/wake.py`](../brodi/wake.py) | Text-only optional wake-prefix controller and test counters; no local speech model. |
 | [`brodi/voice.py`](../brodi/voice.py) | Legacy LiveKit transcript `VoiceGate` and activation window. |

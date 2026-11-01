@@ -138,7 +138,7 @@ def normalize(text: str) -> tuple[str, bool]:
     # Strip only an explicit request prefix followed by a known command verb.
     # Embedded search/message content must retain the user's literal words.
     text = re.sub(
-        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|close|quit|exit|minimize|maximize|restore|focus|switch to|bring up|show|take|capture|pause|resume|skip|calculate|compute|multiply|divide|add|subtract|go to|navigate to|search|look up|type|write|enter|run)\b)",
+        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|close|quit|exit|minimize|maximize|restore|focus|switch to|bring up|show|take|capture|play|put on|pause|resume|skip|calculate|compute|multiply|divide|add|subtract|go to|navigate to|search|look up|type|write|enter|run)\b)",
         "",
         text,
         flags=re.I,
@@ -262,6 +262,26 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
         return Command("web_task", {"site": "google_keep"})
     if re.search(r"\b(?:and|then)\s+(?:open|show|read|play|click|send|delete|add|find|search)\b", clean, re.I):
         return None
+    trending = re.fullmatch(
+        r"(?:open|show|go to|navigate to|bring up)\s+(?:the\s+)?(?:"
+        r"(?:git\s*hub)(?:'s)?\s+trending(?:\s+page)?|"
+        r"trending(?:\s+page)?\s+(?:on|in|of)\s+(?:git\s*hub))",
+        clean,
+        re.I,
+    )
+    if trending:
+        return Command("chrome_open", {"site": "other", "query": "https://github.com/trending"})
+    song = re.fullmatch(r"(?:play|put on)(?:\s+(.+))?", clean, re.I)
+    if song:
+        query = re.sub(r"\s+(?:on|in)\s+(?:spotify|spotify web|the spotify web player)$", "", song[1] or "", flags=re.I)
+        query = re.sub(r"^(?:the song|the track|song|track)\s+", "", query, flags=re.I).strip()
+        # Leave explicitly named other players and generic playback to their existing tools.
+        if not re.search(
+            r"\b(?:on|in)\s+(?:youtube|apple music|amazon music)\b", query, re.I
+        ) and query.casefold() not in {"music", "pause", "video", "the music"}:
+            if query.casefold() in {"", "spotify", "a song", "a track", "a song on spotify", "something"}:
+                return Command("spotify_play", {"query": ""}, "Which song, bro?", "query")
+            return Command("spotify_play", {"query": query})
     search = re.fullmatch(r"(?:search|look up|find)\s+(.+)", clean, re.I)
     if search:
         rest = search[1]

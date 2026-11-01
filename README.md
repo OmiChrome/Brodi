@@ -39,7 +39,11 @@ Voice recognition still uses OpenAI, including when a command takes a local shor
 | “Open Notepad.” / “Close Notepad.” | Launches Notepad or requests a normal close, preserving save prompts. |
 | “Maximize Notepad.” / “Minimize Chrome.” | Controls the named Windows window directly. |
 | “Open Calculator.” / “Open my downloads.” | Opens the app or folder without model routing. |
-| “Calculate 23 times 7.” | Answers directly: “161.” |
+| “What is 500 x 450?” | Opens Calculator, presses its buttons, and leaves **225,000** visible. Replies “Got it.” |
+| “Close calculator.” | Closes the Calculator window Brodi used. |
+| “Play Mockingbird by Eminem.” | Opens Spotify Web, selects the track, and checks playback. Signed-in Chrome and browser access required. |
+| “Play God's Plan by Drake on Spotify.” | Plays the requested track through the same direct tool. |
+| “Open trending page in GitHub.” | Opens [GitHub Trending](https://github.com/trending) directly. |
 | “Search YouTube for lofi beats.” | Opens the search results. |
 | “Search YouTube.” | Asks what you want to search for. |
 | “Type hello world into Notepad.” | Enters the text on Windows and checks it. |
@@ -53,10 +57,12 @@ Start Brodi and wait for **“Listening with OpenAI.”** Then speak. **“Hey b
 
 App support depends on the platform, installed apps, and permissions. Windows has tray controls and native UI Automation; macOS uses AppleScript and system permissions.
 
-**Ready for a fast live demo:** [51 ready-made command examples and the stage runbook](docs/DEMO.md).
-The Windows live checks measured **2.5–105.8 ms after transcription** across 32 demo turns,
-with no routing-model calls. OpenAI recognition, speech playback, and app/page loading
-have separate latency. Run `python -m brodi.demo --catalog` to see the command menu.
+**Ready for a live demo:** [55 ready-made command examples and the stage runbook](docs/DEMO.md).
+Windows checks measured **24 ms** to dispatch GitHub Trending and **101 ms** to repeat
+500 × 450 in an already-open Calculator, including display verification. First opening
+Calculator took **1.34 seconds**. Spotify includes network and player startup time.
+These measurements exclude OpenAI transcription and speech playback. Run
+`python -m brodi.demo --catalog` to see the command menu.
 
 ## Quick start
 
@@ -176,6 +182,13 @@ Opening websites works without extra browser debugging setup. Reading notes or i
 4. Run `uv run python -m brodi.cli --doctor` to check access.
 
 Brodi discovers the connection or uses `BRODI_CDP_URL`. Set `BRODI_CHROME_PROFILE_EMAIL` or `BRODI_CHROME_PROFILE_DIR` to choose a profile. If page access is unavailable, Brodi explains what is missing.
+
+For song requests, sign in to [Spotify Web](https://open.spotify.com/) in that profile.
+Say “play **song title** by **artist** on Spotify.” Brodi matches the title and artist,
+presses Play, and checks the player before acknowledging success. Account playback
+restrictions, unavailable tracks, ads, and browser dialogs can prevent playback;
+see [Spotify's web player help](https://support.spotify.com/us/article/web-player-help/).
+The two stage examples have direct track links; other songs use Spotify's search.
 
 ## Your control and your data
 

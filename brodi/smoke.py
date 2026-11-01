@@ -102,6 +102,12 @@ def main() -> None:
     )
     parser.add_argument("--notepad", action="store_true", help="type and read back hello world in a new test document")
     parser.add_argument(
+        "--calculator",
+        action="store_true",
+        help="press real Calculator buttons, verify results, and close the test window",
+    )
+    parser.add_argument("--spotify", metavar="SONG", help="play and verify a real song in signed-in Spotify Web")
+    parser.add_argument(
         "--desktop",
         action="store_true",
         help="verify minimize/maximize/restore/focus/close on a separate empty Notepad window; 500 ms dispatch budget",
@@ -117,6 +123,10 @@ def main() -> None:
         output.update(asyncio.run(latency()))
     if args.notepad:
         output.update(notepad())
+    if args.calculator:
+        output["calculator"] = asyncio.run(calculator())
+    if args.spotify:
+        output["spotify"] = asyncio.run(spotify(args.spotify))
     if args.desktop:
         from .desktop_smoke import run
 
@@ -128,6 +138,91 @@ def main() -> None:
     print(json.dumps(output, ensure_ascii=False, indent=2))
     if args.desktop and not output["desktop"]["ok"]:
         raise SystemExit(1)
+    if args.spotify and not output["spotify"]["ok"]:
+        raise SystemExit(1)
+
+
+async def calculator() -> dict:
+    """Exercise the same core command path as voice, with real Windows UIA readback."""
+    from .agent import DynamicMacAgent
+    from .memory import MemoryStore
+    from .os_backend import is_windows
+    from .registry import ToolRegistry
+
+    if not is_windows():
+        raise RuntimeError("The Calculator display/readback smoke currently requires Windows.")
+    rows = []
+    with TemporaryDirectory(prefix="brodi-calc-smoke-") as folder:
+        agent = DynamicMacAgent(
+            ToolRegistry(learned_path=Path(folder) / "tools.json"),
+            enable_learning=False,
+            memory=MemoryStore(Path(folder) / "memory.db"),
+        )
+
+        async def no_model(*args, **kwargs):
+            raise AssertionError("Calculator commands must not call a routing model")
+
+        agent.router.client.evaluate = no_model
+        try:
+            await agent.start()
+            for phrase in [
+                "hey bro what is 500 x 450",
+                "what is 500 x 450",
+                "calculate 2 + 3 * 4",
+                "calculate (2 + 3) * 4",
+                "what is 20 percent of 500",
+                "calculate -4 + 0.5",
+                "what is the square root of 81",
+                "calculate 2 to the power of 10",
+                "close calculator",
+            ]:
+                started = time.perf_counter()
+                result = await agent.handle(phrase)
+                assert result.executed, result.speak
+                observed = json.loads(result.observation["output"])
+                assert observed.get("verified") or observed.get("closed"), observed
+                assert result.speak in {"Got it.", "On it."}, result.speak
+                rows.append(
+                    {
+                        "command": phrase,
+                        "dispatch_ms": round((time.perf_counter() - started) * 1000, 2),
+                        "reply": result.speak,
+                        "observation": observed,
+                    }
+                )
+        finally:
+            await agent.aclose()
+    return {
+        "ok": True,
+        "rows": rows,
+        "measurement": "Core command through real UIA buttons and display verification; excludes STT and TTS.",
+    }
+
+
+async def spotify(song: str) -> dict:
+    from .agent import DynamicMacAgent
+    from .memory import MemoryStore
+    from .registry import ToolRegistry
+
+    with TemporaryDirectory(prefix="brodi-spotify-smoke-") as folder:
+        agent = DynamicMacAgent(
+            ToolRegistry(learned_path=Path(folder) / "tools.json"),
+            enable_learning=False,
+            memory=MemoryStore(Path(folder) / "memory.db"),
+        )
+        started = time.perf_counter()
+        try:
+            await agent.start()
+            result = await agent.handle("play " + song + " on Spotify")
+            return {
+                "ok": result.executed,
+                "reply": result.speak,
+                "observation": result.observation,
+                "dispatch_ms": round((time.perf_counter() - started) * 1000, 2),
+                "model_calls": agent.router.client.usage["calls"],
+            }
+        finally:
+            await agent.aclose()
 
 
 async def cloud_stt(path: Path) -> dict:

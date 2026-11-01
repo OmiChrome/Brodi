@@ -45,6 +45,7 @@ ALLOWED_SEED = {
     "music_next",
     "music_now_playing",
     "spotify_play_pause",
+    "spotify_play",
     "spotify_next",
     "spotify_now_playing",
 }
@@ -203,7 +204,7 @@ def _tools():
 def test_every_cross_platform_seed_tool_has_a_windows_script():
     missing = []
     for d in SEED:
-        if d.get("scope") == "Safari" or d.get("runner") in {"browser", "builtin", "calculator"}:
+        if d.get("scope") == "Safari" or d.get("runner") in {"browser", "builtin", "calculator", "spotify"}:
             continue
         if not d.get("script_win"):
             missing.append(d["name"])

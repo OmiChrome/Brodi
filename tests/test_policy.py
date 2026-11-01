@@ -42,6 +42,7 @@ ALLOWED_SEED = {
     "music_next",
     "music_now_playing",
     "spotify_play_pause",
+    "spotify_play",
     "spotify_next",
     "spotify_now_playing",
 }

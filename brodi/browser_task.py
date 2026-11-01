@@ -270,12 +270,19 @@ class TargetChanged(CDPError):
 class CDPConnection:
     """Minimal flattened CDP client over a Chrome websocket."""
 
-    def __init__(self, endpoint: str | None = None):
+    def __init__(self, endpoint: str | None = None, *, deadline: float | None = None):
         self.endpoint = (endpoint or CDP_URL).rstrip("/")
         self._explicit_endpoint = endpoint is not None or bool(os.environ.get("BRODI_CDP_URL"))
         self._ws: Any = None
         self._id = 0
         self._lock = threading.Lock()
+        self.deadline = deadline
+
+    def _remaining(self, limit: float) -> float:
+        remaining = min(limit, self.deadline - time.monotonic()) if self.deadline is not None else limit
+        if remaining <= 0:
+            raise CDPError("Chrome operation timed out")
+        return remaining
 
     def _connect(self) -> None:
         from websockets.sync.client import connect
@@ -287,14 +294,21 @@ class CDPConnection:
                 lines = (chrome.LOCAL_STATE.parent / "DevToolsActivePort").read_text().splitlines()
                 port = int(lines[0])
                 if 0 < port < 65536 and lines[1].startswith("/devtools/browser/"):
-                    self._ws = connect(f"ws://127.0.0.1:{port}{lines[1]}", max_size=8 * 1024 * 1024, open_timeout=5)
+                    self._ws = connect(
+                        f"ws://127.0.0.1:{port}{lines[1]}",
+                        max_size=8 * 1024 * 1024,
+                        open_timeout=self._remaining(5),
+                        close_timeout=1,
+                    )
                     return
             except Exception:
                 pass  # A stale discovery file should not break a configured local port.
         try:
-            with urllib.request.urlopen(f"{self.endpoint}/json/version", timeout=5) as response:
+            with urllib.request.urlopen(f"{self.endpoint}/json/version", timeout=self._remaining(5)) as response:
                 info = json.loads(response.read().decode("utf-8"))
-            self._ws = connect(info["webSocketDebuggerUrl"], max_size=8 * 1024 * 1024, open_timeout=5)
+            self._ws = connect(
+                info["webSocketDebuggerUrl"], max_size=8 * 1024 * 1024, open_timeout=self._remaining(5), close_timeout=1
+            )
         except Exception as exc:
             raise CDPError(
                 "Chrome browser access isn't enabled. Open chrome://inspect/#remote-debugging and allow remote debugging, then try again."
@@ -302,19 +316,24 @@ class CDPConnection:
 
     def call(self, method: str, session_id: str | None = None, **params: Any) -> dict[str, Any]:
         with self._lock:
+            self._remaining(10)
             if self._ws is None:
                 self._connect()
+            remaining = self._remaining(10)
             self._id += 1
             message: dict[str, Any] = {"id": self._id, "method": method, "params": params}
             if session_id:
                 message["sessionId"] = session_id
             self._ws.send(json.dumps(message))
-            deadline = time.monotonic() + 10
+            deadline = time.monotonic() + remaining
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise CDPError(f"Chrome did not answer {method} within 10 seconds")
-                data = json.loads(self._ws.recv(timeout=remaining))
+                try:
+                    data = json.loads(self._ws.recv(timeout=remaining))
+                except TimeoutError as exc:
+                    raise CDPError(f"Chrome did not answer {method}. Check that browser access is allowed.") from exc
                 if data.get("id") != self._id:
                     continue
                 if "error" in data:
@@ -371,7 +390,7 @@ def _context_id_for_profile(profile_dir: str) -> str | None:
         cdp.close()
 
 
-def _resolve_profile_context(cdp: Any, profile_dir: str) -> str | None:
+def _resolve_profile_context(cdp: Any, profile_dir: str, *, strict: bool = False) -> str | None:
     # Check access before launching a probe tab, so setup failures don't open unrelated pages.
     targets = cdp.call("Target.getTargets").get("targetInfos", [])
     cached = _context_cache.get(profile_dir)
@@ -380,8 +399,12 @@ def _resolve_profile_context(cdp: Any, profile_dir: str) -> str | None:
             return cached
     token = uuid.uuid4().hex
     probe = f"https://example.com/?brodi_probe={token}"
-    subprocess.run(chrome.launch_chrome_command(probe, profile_dir), check=False)
-    deadline = time.monotonic() + 8
+    deadline = min(time.monotonic() + 8, getattr(cdp, "deadline", None) or float("inf"))
+    subprocess.run(
+        chrome.launch_chrome_command(probe, profile_dir),
+        check=False,
+        timeout=max(0.01, min(3, deadline - time.monotonic())),
+    )
     while time.monotonic() < deadline:
         for target in cdp.call("Target.getTargets").get("targetInfos", []):
             if token in target.get("url", "") and target.get("type") == "page":
@@ -394,6 +417,8 @@ def _resolve_profile_context(cdp: Any, profile_dir: str) -> str | None:
                     _context_cache[profile_dir] = context_id
                 return context_id
         time.sleep(0.15)
+    if strict:
+        raise CDPError("I couldn't find your configured Chrome profile. Open Chrome and try again.")
     log.warning("could not locate Chrome profile %s over CDP; using default context", profile_dir)
     return None
 

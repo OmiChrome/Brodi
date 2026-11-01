@@ -28,6 +28,7 @@ QUICK_DEMOS = {
     "Websites": [
         "open YouTube",
         "open GitHub",
+        "open trending page in GitHub",
         "open Google Keep",
         "open Gmail",
         "open Google Calendar",
@@ -47,11 +48,13 @@ QUICK_DEMOS = {
         "search Google Maps for coffee",
     ],
     "Media": ["toggle playback", "next song", "previous song", "stop music", "volume up", "volume down"],
+    "Spotify Web": ["play Mockingbird by Eminem", "play God's Plan by Drake on Spotify"],
     "Helpers": [
         "take a screenshot",
         "what time is it",
         "what is today's date",
         "check battery",
         "calculate 23 times 7",
+        "what is 500 x 450",
     ],
 }
