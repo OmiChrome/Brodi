@@ -18,7 +18,7 @@ running_pid() {
   kill -0 "$pid" 2>/dev/null || return 1
   # A stale pid file must never make us signal an unrelated process.
   local command=$(ps -p "$pid" -o command= 2>/dev/null)
-  [[ $command == *"agent.py console"* ]] || return 1
+  [[ $command == *"-m brodi.console_service"* ]] || return 1
   print -r -- "$pid"
 }
 
@@ -46,7 +46,7 @@ start() {
     print -u2 'missing: OPENAI_API_KEY (set it in .env.local or your environment)'
     return 1
   fi
-  nohup uv run python agent.py console >> "$LOG" 2>&1 &
+  nohup python3 -m brodi.console_service "$LOG" </dev/null >/dev/null 2>&1 &
   pid=$!
   print -r -- "$pid" > "$PIDFILE"
   sleep 3

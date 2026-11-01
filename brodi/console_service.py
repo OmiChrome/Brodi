@@ -1,0 +1,59 @@
+"""Run LiveKit's console mode in a pseudo-terminal for detached macOS use."""
+
+from __future__ import annotations
+
+import os
+import pty
+import select
+import signal
+import sys
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print("usage: python -m brodi.console_service LOG", file=sys.stderr)
+        return 2
+
+    log_path = sys.argv[1]
+    child, master = pty.fork()
+    if child == 0:
+        os.execvp("uv", ["uv", "run", "python", "agent.py", "console"])
+
+    def stop(_signum: int, _frame: object) -> None:
+        try:
+            os.killpg(child, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        with open(log_path, "ab", buffering=0) as log:
+            while True:
+                ready, _, _ = select.select([master], [], [], 0.5)
+                if ready:
+                    try:
+                        data = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not data:
+                        break
+                    log.write(data)
+                ended, status = os.waitpid(child, os.WNOHANG)
+                if ended:
+                    return os.waitstatus_to_exitcode(status)
+    finally:
+        os.close(master)
+        try:
+            os.killpg(child, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            os.waitpid(child, 0)
+        except ChildProcessError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
