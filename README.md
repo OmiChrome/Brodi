@@ -112,14 +112,25 @@ brodi restart
 brodi doctor       :: check setup without recording audio or calling a model
 ```
 
-`brodi.cmd` forwards to `console.ps1`, so no LiveKit server or cloud account is involved —
+`brodi.cmd` forwards to `console.ps1` on Windows. On macOS, `brody` runs the same
+local console mode through `uv` and tracks its process for `status` and `stop`.
+Install the macOS command once with:
+
+```bash
+chmod +x brody
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/brody" ~/.local/bin/brody
+# Add ~/.local/bin to PATH in ~/.zshrc if it is not already there.
+```
+
+No LiveKit server or cloud account is involved —
 console mode runs the whole pipeline on your machine and your one OpenAI key. Put this
 folder on your `PATH` (done automatically by setup on Windows) or call `.\console.ps1 start`
 directly. Foreground and macOS equivalents:
 
 ```bash
 uv run python agent.py console                    # foreground, either platform
-./console.sh start                                # macOS detached: start|stop|status|log
+brody start                                      # macOS detached: start|stop|status|restart|log
 uv run python -m brodi.cli --dry "open github dot com"   # route only, no audio
 uv run python -m brodi.cli --policy               # every tool and whether policy allows it
 ```

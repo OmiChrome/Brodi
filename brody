@@ -1,0 +1,98 @@
+#!/bin/zsh
+# macOS command for the local Brodi voice assistant.
+set -u
+unsetopt BG_NICE
+
+ROOT=${0:A:h}
+if ! command -v uv >/dev/null 2>&1; then
+  USER_PYTHON_BIN=$(python3 -m site --user-base 2>/dev/null)/bin
+  [[ -x $USER_PYTHON_BIN/uv ]] && export PATH="$USER_PYTHON_BIN:$PATH"
+fi
+PIDFILE=${BRODI_PIDFILE:-${TMPDIR:-/tmp/}brody-${UID}.pid}
+LOG=${BRODI_LOG:-${TMPDIR:-/tmp/}brody-${UID}.log}
+
+running_pid() {
+  [[ -f $PIDFILE ]] || return 1
+  local pid=$(<"$PIDFILE")
+  [[ $pid == <-> ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  # A stale pid file must never make us signal an unrelated process.
+  local command=$(ps -p "$pid" -o command= 2>/dev/null)
+  [[ $command == *"agent.py console"* ]] || return 1
+  print -r -- "$pid"
+}
+
+load_key() {
+  cd "$ROOT" || return 1
+  set -a
+  [[ -f .env ]] && source .env
+  [[ -f .env.local ]] && source .env.local
+  set +a
+  [[ -n ${OPENAI_API_KEY:-} ]]
+}
+
+start() {
+  local pid
+  if pid=$(running_pid); then
+    print "already running (pid $pid)"
+    return 0
+  fi
+  rm -f "$PIDFILE"
+  if ! command -v uv >/dev/null 2>&1; then
+    print -u2 'missing: uv (install uv, then run uv sync in the Brodi folder)'
+    return 1
+  fi
+  if ! load_key; then
+    print -u2 'missing: OPENAI_API_KEY (set it in .env.local or your environment)'
+    return 1
+  fi
+  nohup uv run python agent.py console >> "$LOG" 2>&1 &
+  pid=$!
+  print -r -- "$pid" > "$PIDFILE"
+  sleep 3
+  if running_pid >/dev/null; then
+    print "running (pid $pid), log: $LOG"
+  else
+    rm -f "$PIDFILE"
+    print -u2 "failed to start; see $LOG"
+    tail -n 15 "$LOG" >&2
+    return 1
+  fi
+}
+
+stop() {
+  local pid
+  if ! pid=$(running_pid); then
+    rm -f "$PIDFILE"
+    print 'not running'
+    return 0
+  fi
+  kill -TERM "$pid" 2>/dev/null
+  local i
+  for i in {1..50}; do
+    if ! running_pid >/dev/null; then
+      rm -f "$PIDFILE"
+      print "stopped (pid $pid)"
+      return 0
+    fi
+    sleep 0.1
+  done
+  print -u2 "could not stop (pid $pid)"
+  return 1
+}
+
+case ${1:-status} in
+  start) start ;;
+  stop) stop ;;
+  status)
+    if pid=$(running_pid); then
+      print "running (pid $pid)"
+    else
+      rm -f "$PIDFILE"
+      print 'not running'
+      exit 1
+    fi ;;
+  restart) stop && start ;;
+  log) [[ -f $LOG ]] && tail -n 100 "$LOG" || { print -u2 "no log at $LOG"; exit 1; } ;;
+  *) print -u2 'usage: brody start|stop|status|restart|log'; exit 2 ;;
+esac
