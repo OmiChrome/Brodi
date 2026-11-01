@@ -243,9 +243,14 @@ def view(
             for event in reader.poll():
                 if event["time"] >= since and (pid is None or pid in (event.get("pid"), event.get("parent_pid"))):
                     print(render_event(event, color=color, width=width), file=stream, flush=True)
-            if process is not None and not process.is_running():
-                print("Brodi is stopped.", file=stream, flush=True)
-                return 0
+            if process is not None:
+                try:
+                    stopped = not process.is_running() or process.status() == psutil.STATUS_ZOMBIE
+                except psutil.Error:
+                    stopped = True
+                if stopped:
+                    print("Brodi is stopped.", file=stream, flush=True)
+                    return 0
             time.sleep(0.2)
     except KeyboardInterrupt:
         print("\nActivity view closed. Brodi keeps running.", file=stream, flush=True)
