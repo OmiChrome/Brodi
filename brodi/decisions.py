@@ -14,15 +14,18 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 import openai
 from pydantic import BaseModel, Field, create_model
 
+from .models import cache_key, model
+
 log = logging.getLogger("brodi.decisions")
 
 DECISIONS_MODEL = os.environ.get("BRODI_DECISIONS_MODEL", "gpt-6-luna")
-FAST_FALLBACK_MODEL = os.environ.get("BRODI_FAST_FALLBACK_MODEL", "gpt-5.4-nano")
+FAST_FALLBACK_MODEL = model("fast_fallback")
 
 # The endpoint accepts 2-255 choices per question; a single candidate is decided locally.
 MIN_CHOICES = 2
@@ -173,16 +176,30 @@ def _serialise_state(state: Any) -> Any:
 
 
 def _batch_schema(questions: dict[str, Question]):
+    return _cached_batch_schema(
+        tuple(
+            (
+                name,
+                tuple(q.criteria) if isinstance(q, ChoiceQuestion) else None,
+                json.dumps(q.to_payload(name), sort_keys=True),
+            )
+            for name, q in questions.items()
+        )
+    )
+
+
+@lru_cache(maxsize=64)
+def _cached_batch_schema(specs: tuple):
     fields: dict[str, Any] = {}
-    for name, question in questions.items():
-        if isinstance(question, ChoiceQuestion):
-            allowed = ", ".join(question.criteria)
+    for name, criteria, description in specs:
+        if criteria is not None:
+            allowed = ", ".join(criteria)
             fields[name] = (
                 str,
-                Field(default="", description=f"One of: {allowed}. Copy the value exactly."),
+                Field(default="", description=f"{description}. One of: {allowed}. Copy the value exactly."),
             )
         else:
-            fields[name] = (bool, Field(default=False, description="True or false."))
+            fields[name] = (bool, Field(default=False, description=description + " True or false."))
     return create_model("DynamicBatchSchema", **fields)
 
 
@@ -278,6 +295,7 @@ class DecisionsClient:
             ],
             text_format=schema,
             reasoning={"effort": "none"},
+            prompt_cache_key=cache_key("decisions-fallback", schema.model_json_schema()),
         )
         parsed = getattr(resp, "output_parsed", None)
         if parsed is None:

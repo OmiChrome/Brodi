@@ -15,6 +15,7 @@ from brodi.router import Route
 
 @pytest.fixture
 def assistant(monkeypatch, tmp_path):
+    monkeypatch.setenv("BRODI_FAST_LAUNCH", "0")
     monkeypatch.setenv("BRODI_OS", "win32")
     agent = DynamicMacAgent(ToolRegistry(learned_path=tmp_path / "learned.json"), enable_learning=False)
     scripts = []
@@ -257,3 +258,46 @@ def test_known_windows_apps_are_recognized_without_start_menu_scan(monkeypatch):
     monkeypatch.setenv("BRODI_OS", "darwin")
     assert commands.parse_command("open textedit").args == {"app": "TextEdit"}
     assert os_backend.is_windows() is False
+
+
+def test_activity_exposes_command_action_output_and_waiting_state(assistant, tmp_path):
+    from brodi.activity import ActivityLog, JournalReader
+
+    agent, _ = assistant
+    agent.activity = ActivityLog(tmp_path / "events")
+    result = asyncio.run(agent.handle("Hey bro, open Chrome"))
+    assert result.executed
+    events = JournalReader(agent.activity.path).poll()
+    assert events[0]["message"] == "Hey bro, open Chrome"
+    assert any(e["kind"] == "action" and e["message"] == "Opening Google Chrome" for e in events)
+    assert any(e["kind"] == "observation" and e["details"]["output"] == "opened" for e in events)
+    assert any(e["kind"] == "output" for e in events)
+    assert events[-1]["message"] == "Listening for a task"
+
+
+def test_activity_shows_pending_question_instead_of_false_completion(assistant, tmp_path):
+    from brodi.activity import ActivityLog, JournalReader
+
+    agent, _ = assistant
+    agent.activity = ActivityLog(tmp_path / "events")
+    asyncio.run(agent.handle("search youtube"))
+    events = JournalReader(agent.activity.path).poll()
+    assert events[-1]["message"] == "Waiting for your answer"
+    assert not any(e["kind"] == "result" for e in events)
+
+
+def test_activity_never_reports_failed_action_as_completed(assistant, tmp_path, monkeypatch):
+    from brodi.activity import ActivityLog, JournalReader
+
+    async def failed(script):
+        return ScriptResult(False, "", "Notepad could not start")
+
+    agent, _ = assistant
+    agent.activity = ActivityLog(tmp_path / "events")
+    monkeypatch.setattr(agent_module, "run_applescript", failed)
+    result = asyncio.run(agent.handle("open Notepad"))
+    events = JournalReader(agent.activity.path).poll()
+    assert not result.executed
+    assert any(e["kind"] == "error" for e in events)
+    assert not any(e["kind"] == "result" for e in events)
+    assert events[-1]["message"] == "Listening for a task"

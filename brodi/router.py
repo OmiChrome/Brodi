@@ -49,6 +49,7 @@ class Route:
     weakest_arg: tuple[str, float] | None = None
     reply: str = ""
     missing_arg: str = ""
+    multi_step: bool = False
 
     @property
     def summary(self) -> str:
@@ -148,6 +149,9 @@ class JevRouter:
                 criteria=criteria,
             )
         }
+        questions["multi_step"] = PredicateQuestion(
+            instructions="Does the user request multiple distinct desktop tool actions, rather than one action or a task inside a website? Do not mark a simple app open, search, chat, or confirmation as multi-step."
+        )
         # Speculative enum-argument questions for every candidate tool.
         for t in tools:
             for spec in t.args:
@@ -197,6 +201,8 @@ class JevRouter:
             confidence=float(intent.confidence),
             probabilities={k: round(float(v), 3) for k, v in intent.probabilities.items()},
         )
+        multi = resp.predicates.get("multi_step")
+        route.multi_step = bool(multi and multi.probability >= 0.65 and not awaiting_confirmation)
         if "web_goal_complete" in resp.predicates:
             route.web_goal_complete = float(resp.predicates["web_goal_complete"].noul)
             route.web_goal_forbidden = float(resp.predicates["web_goal_forbidden"].noul)

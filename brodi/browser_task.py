@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from . import chrome, commands, os_backend
 from .decisions import ChoiceQuestion, DecisionsClient
+from .models import cache_key, model
 
 log = logging.getLogger("brodi.browser")
 
@@ -40,7 +41,7 @@ MAX_STEPS = int(os.environ.get("BRODI_BROWSER_MAX_STEPS", "25"))
 PROGRESS_EVERY_S = 12.0
 VIEWPORT = (1120, 780)
 CDP_URL = os.environ.get("BRODI_CDP_URL", "http://127.0.0.1:9222")
-FAST_MODEL = os.environ.get("BRODI_FAST_MODEL", "gpt-5.4-nano")
+FAST_MODEL = model("fast")
 
 DATE_FIELD = re.compile(r"\b(date|departure|depart|return|check[- ]?in|check[- ]?out|arrival|arrive)\b", re.I)
 OPERATIONS = ("click", "fill", "scroll_down", "scroll_up", "wait", "done", "blocked")
@@ -195,6 +196,7 @@ def compose_goal_sync(utterance: str, context: dict[str, Any]) -> ComposedGoal:
             {"role": "user", "content": json.dumps({"utterance": utterance, **context}, ensure_ascii=False)},
         ],
         text_format=ComposedGoal,
+        prompt_cache_key=cache_key("compose", COMPOSE_SYSTEM),
         reasoning={"effort": "none"},
     )
     if inspect.isawaitable(response):
@@ -221,6 +223,7 @@ def _field_text_sync(context: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
         ],
         text_format=FieldText,
+        prompt_cache_key=cache_key("field-text"),
         reasoning={"effort": "none"},
         max_output_tokens=300,
     )
@@ -630,6 +633,7 @@ def run_task_sync(
     cdp: Any | None = None,
     decisions: Any | None = None,
     max_steps: int | None = None,
+    on_activity: Callable[[str, str, dict[str, Any]], None] | None = None,
 ) -> BrowserResult:
     """Blocking. Drive Chrome toward `goal` starting at `start_url`, or continue in `reuse_target`."""
     own = cdp is None
@@ -644,6 +648,7 @@ def run_task_sync(
     page: dict[str, Any] = {}
     target_id: str | None = None
     session_id: str | None = None
+    last_observed = None
     url = start_url if reuse_target else (start_url or SITE_URLS["other"])
 
     try:
@@ -690,6 +695,17 @@ def run_task_sync(
             if time.perf_counter() - started >= WALL_CLOCK_S:
                 status = "timeout"
                 break
+            observed = (page.get("url"), page.get("title"), page.get("text"))
+            if observed != last_observed:
+                _report_activity(
+                    on_activity,
+                    "observation",
+                    "Reading the page",
+                    title=page.get("title", ""),
+                    url=page.get("url", ""),
+                    visible_text=page.get("text", ""),
+                )
+                last_observed = observed
             response = _decide(decisions, goal, page, history)
             operation = response.choices.get("operation")
             if operation is None:
@@ -731,10 +747,28 @@ def run_task_sync(
                 if operation.choice in ("click", "fill"):
                     if action is None:
                         raise CDPError("decision selected no observed target")
+                    _report_activity(
+                        on_activity,
+                        "action",
+                        ("Clicking " if operation.choice == "click" else "Entering text in ")
+                        + action.get("label", "the selected control"),
+                    )
                     text = _execute(cdp, session_id, operation.choice, action, goal)
+                    if operation.choice == "fill":
+                        _report_activity(on_activity, "observation", "Text entered", value=text)
                 else:
+                    _report_activity(
+                        on_activity,
+                        "action",
+                        {
+                            "scroll_down": "Scrolling down",
+                            "scroll_up": "Scrolling up",
+                            "wait": "Waiting for the page to load",
+                        }.get(operation.choice, operation.choice),
+                    )
                     text = _execute(cdp, session_id, operation.choice, action or {}, goal)
             except TargetChanged as exc:
+                _report_activity(on_activity, "progress", "The page changed; looking again")
                 history.append(
                     {
                         "step": step,
@@ -769,6 +803,7 @@ def run_task_sync(
     except Exception as exc:
         status, error = "error", _short(exc)
         log.exception("browser task failed")
+        _report_activity(on_activity, "error", "Browser task failed", reason=error)
     finally:
         if session_id and not own:
             try:
@@ -801,8 +836,18 @@ async def run_task(
     goal: str,
     on_progress: Callable[[str], None] | None = None,
     reuse_target: str | None = None,
+    *,
+    on_activity: Callable[[str, str, dict[str, Any]], None] | None = None,
 ) -> BrowserResult:
-    return await asyncio.to_thread(run_task_sync, start_url, goal, on_progress, reuse_target)
+    return await asyncio.to_thread(run_task_sync, start_url, goal, on_progress, reuse_target, on_activity=on_activity)
+
+
+def _report_activity(callback: Callable | None, kind: str, message: str, **details: Any) -> None:
+    if callback:
+        try:
+            callback(kind, message, details)
+        except Exception:
+            log.debug("activity callback failed", exc_info=True)
 
 
 def _short(exc: BaseException, limit: int = 140) -> str:

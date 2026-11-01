@@ -6,6 +6,10 @@ from brodi import policy
 SEED = json.loads((pathlib.Path(__file__).parent.parent / "tools" / "seed.json").read_text())
 
 ALLOWED_SEED = {
+    "focus_window",
+    "window_state",
+    "click_native_button",
+    "type_text",
     "set_volume",
     "open_app",
     "quit_app",

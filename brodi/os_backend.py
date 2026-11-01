@@ -243,6 +243,25 @@ def get_active_app() -> str:
     return _windows_active_app() if is_windows() else _mac_active_app()
 
 
+def get_active_window_title() -> str:
+    if not is_windows():
+        return ""  # App context remains available; do not add an expensive AppleScript probe.
+    try:
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        window = user32.GetForegroundWindow()
+        length = user32.GetWindowTextLengthW(window)
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(window, buffer, length + 1)
+        return buffer.value[:300]
+    except Exception:
+        return ""
+
+
 def _windows_running_apps() -> list[str]:
     import psutil
 

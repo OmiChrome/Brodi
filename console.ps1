@@ -1,16 +1,43 @@
-# brodi console (Windows 11): start / stop / status / log / restart
+# brodi console: start/status stream activity; --once prints a snapshot.
 # Usage: brodi start        (brodi.cmd on PATH calls this)
 #        .\console.ps1 start
-param([ValidateSet("start", "stop", "status", "log", "restart", "doctor")][string]$Action = "start")
+param(
+    [ValidateSet("start", "stop", "status", "log", "restart", "doctor", "debug")][string]$Action = "start",
+    [switch]$Once,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArguments
+)
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+$Snapshot = $Once -or ($ExtraArguments -contains '--once')
 $Log = if ($env:BRODI_LOG) { $env:BRODI_LOG } else { Join-Path $env:TEMP "brodi-console.log" }
 
 function Get-BrodiProcess {
     # uv is the launcher; python is the actual agent. Both carry "agent.py console".
     Get-CimInstance Win32_Process |
         Where-Object { $_.CommandLine -like "*agent.py*console*" -and $_.CommandLine -like "*$PSScriptRoot*" -and $_.Name -match "^(python|uv)" }
+}
+
+function Invoke-BrodiPython([string[]]$PythonArguments) {
+    $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    if (Test-Path -LiteralPath $python) { & $python @PythonArguments }
+    else { & uv run python @PythonArguments }
+}
+
+function Show-Activity([switch]$History) {
+    $running = @(Get-BrodiProcess)
+    if (-not $running -and -not $History) { "Brodi is stopped. Run brodi start."; return }
+    $viewArguments = @('-m', 'brodi.activity')
+    if ($Snapshot -or $History) { $viewArguments += '--once' }
+    if (-not $History) {
+        # A virtualenv launcher can have the same command line as the actual Python child.
+        $parents = @($running | ForEach-Object { $_.ParentProcessId })
+        $agentProcess = $running | Where-Object { $_.ProcessId -notin $parents } | Select-Object -First 1
+        if (-not $agentProcess) { $agentProcess = $running[0] }
+        $viewArguments += @('--pid', [string]$agentProcess.ProcessId)
+        Write-Host 'Brodi is running.' -ForegroundColor Green
+    }
+    Invoke-BrodiPython $viewArguments
 }
 
 function Import-DotEnv([string]$Path) {
@@ -35,7 +62,8 @@ function Stop-Brodi {
 
 function Start-Brodi {
     $running = Get-BrodiProcess
-    if ($running) { "already running (pid $($running[0].ProcessId))"; return }
+    if ($running) { Show-Activity; return }
+    Write-Host 'Starting Brodi...' -ForegroundColor Cyan
 
     Import-DotEnv (Join-Path $PSScriptRoot ".env.local")
     Import-DotEnv (Join-Path $PSScriptRoot ".env")
@@ -62,35 +90,23 @@ function Start-Brodi {
         if (Test-Path $Log) { Get-Content $Log -Tail 15 | ForEach-Object { "  $_" } }
         exit 1
     }
-    "started (pid $($running[0].ProcessId)), log: $Log"
-    if ($wrapper.HasExited) { "note: launcher exited, agent continues under uv/python" }
+    Write-Host 'Brodi started. Waiting for the voice session...' -ForegroundColor Green
+    Show-Activity
 }
 
 switch ($Action) {
     "doctor" {
-        $python = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-        if (Test-Path -LiteralPath $python) { & $python -m brodi.cli --doctor }
-        else { & uv run python -m brodi.cli --doctor }
+        Invoke-BrodiPython @('-m', 'brodi.cli', '--doctor')
         exit $LASTEXITCODE
     }
     "start" { Start-Brodi }
     "stop" { Stop-Brodi }
     "restart" { Stop-Brodi; Start-Brodi }
-    "status" {
-        $running = Get-BrodiProcess
-        if (-not $running) { "not running" }
-        else {
-            $running | ForEach-Object {
-                $started = try { $_.CreationDate } catch { $null }
-                $uptime = if ($started) { [int]((Get-Date) - $started).TotalSeconds } else { 0 }
-                "running (pid $($_.ProcessId), ${uptime}s): $($_.CommandLine)"
-            }
-        }
-    }
-    "log" {
+    "status" { Show-Activity }
+    "log" { Show-Activity -History }
+    "debug" {
         if (-not (Test-Path $Log)) { "no log at $Log"; exit 1 }
         Get-Content $Log -Tail 300 |
-            ForEach-Object { $_ -replace "\x1b\[[0-9;?]*[A-Za-z]", "" } |
-            Where-Object { $_ -match "route|transcript|assistant|agent>|ERROR|learned|failed|pipeline:|brodi.voice\s+turn" }
+            ForEach-Object { $_ -replace "\x1b\[[0-9;?]*[A-Za-z]", "" }
     }
 }

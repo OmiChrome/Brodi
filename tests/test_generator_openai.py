@@ -91,9 +91,9 @@ def test_generate_uses_openai_responses_parse(monkeypatch, tmp_path):
 
     assert msg == "" and tool is not None and tool.name == "notify_me"
     call = client.responses.calls[0]
-    assert call["model"] == "gpt-6.1-sol"
+    assert call["model"] == "gpt-6-luna"
     assert call["text_format"] is GeneratedTool
-    assert call["reasoning"] == {"effort": "low"}
+    assert call["reasoning"] == {"effort": "none"}
     assert call["max_output_tokens"] == 1500
     assert reg.get("notify_me") is not None and reg.get("notify_me").source == "learned"
     assert tool.verified == 0.9

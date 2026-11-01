@@ -595,5 +595,85 @@
       "run git status in the terminal"
     ],
     "script_win": "Start-Process powershell -ArgumentList '-NoExit', '{{command}}'"
+  },
+  {
+    "name": "type_text",
+    "description": "Type literal text into a named application or focused edit field.",
+    "scope": null,
+    "runner": "native_text",
+    "args": [
+      {
+        "name": "text",
+        "kind": "text",
+        "instructions": "Exact text to type."
+      },
+      {
+        "name": "app",
+        "kind": "text",
+        "instructions": "Application or exact window title."
+      }
+    ],
+    "script": "tell application \"{{app}}\" to activate\ntell application \"System Events\" to keystroke \"{{text}}\"",
+    "script_win": "'Native text input via UI Automation'",
+    "speak": "done",
+    "examples": [
+      "type hello world into Notepad"
+    ]
+  },
+  {
+    "name": "focus_window",
+    "description": "Focus a named Windows application window.",
+    "scope": null,
+    "runner": "windows_uia",
+    "args": [
+      {
+        "name": "app",
+        "kind": "text",
+        "instructions": "App or exact window title."
+      }
+    ],
+    "risky": false,
+    "script": "",
+    "script_win": "'Native window control via UI Automation'",
+    "speak": "done"
+  },
+  {
+    "name": "window_state",
+    "description": "Read a named Windows window state and its accessible controls.",
+    "scope": null,
+    "runner": "windows_uia",
+    "args": [
+      {
+        "name": "app",
+        "kind": "text",
+        "instructions": "App or exact window title."
+      }
+    ],
+    "risky": false,
+    "script": "",
+    "script_win": "'Native window control via UI Automation'",
+    "speak": "result"
+  },
+  {
+    "name": "click_native_button",
+    "description": "Click a named button in a Windows application after confirmation.",
+    "scope": null,
+    "runner": "windows_uia",
+    "args": [
+      {
+        "name": "app",
+        "kind": "text",
+        "instructions": "App or exact window title."
+      },
+      {
+        "name": "name",
+        "kind": "text",
+        "instructions": "Exact visible button name."
+      }
+    ],
+    "risky": true,
+    "script": "",
+    "script_win": "'Native window control via UI Automation'",
+    "speak": "done"
   }
 ]

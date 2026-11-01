@@ -11,14 +11,15 @@ right actions, and get things done.
 > first, and don't point voice control at a machine whose setup you can't afford to lose.
 
 ```
-OpenAI STT ─► Decisions picks a tool + its arguments (one request) ─► AppleScript / PowerShell ─► OpenAI TTS
+Local VAD / wake / STT ─► memory / direct parser / Decisions ─► policy ─► AppleScript / PowerShell / UIA ─► TTS
                  ├─ website task ─► CDP DOM loop, one Decisions request per step
                  ├─ unknown action ─► Responses API writes a new tool, checked, cached
                  └─ small talk ─► OpenAI LLM, one sentence
 ```
 
-**One `OPENAI_API_KEY`.** Voice, routing, judgments, code generation and the browser agent
-all run on OpenAI. No Gradium, TypeSafe, jev-ultrafast, Silero or local-model server.
+**One `OPENAI_API_KEY`.** Routing, judgments, code generation, conversational replies,
+and TTS use OpenAI when needed. Default console listening and transcription run locally;
+there is no cloud STT session waiting for the wake phrase.
 
 **macOS and Windows 11.** The same assistant, tools and policy run on both platforms:
 AppleScript (`osascript`/`osacompile`) on macOS and PowerShell (`powershell.exe`/`pwsh`, AST
@@ -46,23 +47,25 @@ Brodi inverts this. Code owns the workflow and hands the Decisions API small, ty
 - **Judgments, not chat.** Follow-ups, missing form details, confirmations and outcome
   verification are single predicates or choices on the same endpoint.
 
-## Voice: OpenAI
+## Voice: local activation, brief replies
 
-The pipeline mode uses OpenAI STT (`gpt-4o-mini-transcribe`), a small chat model for brief
-replies (`gpt-5.4-nano`) and OpenAI TTS (`gpt-4o-mini-tts`, voice `onyx` — a deep male voice). Set
-`BRODI_VOICE_MODE=realtime` to run the OpenAI Realtime API instead (`gpt-realtime-2.1-mini`)
-with semantic VAD; the turn is still intercepted before a response is generated, so the
-router stays in charge.
+Default console mode uses WebRTC VAD plus Vosk offline keyword spotting and command
+transcription. A custom openWakeWord ONNX model can be supplied. Press **Ctrl+Alt+B**
+for the hotkey fallback. Brodi replies briefly: “Gotcha,” “Yo bro,” or “Got it.”
+OpenAI TTS uses `gpt-4o-mini-tts` and voice `onyx`; `BRODI_TTS_ENABLED=false` disables it.
 
-Every model is an optional override: `BRODI_STT_MODEL`, `BRODI_TTS_MODEL`, `BRODI_CHAT_MODEL`,
-`BRODI_REALTIME_MODEL`, `BRODI_VOICE`, `BRODI_DECISIONS_MODEL` (default `gpt-6-luna`),
-`BRODI_CODEGEN_MODEL` (default `gpt-6.1-sol`), `BRODI_FAST_MODEL` (default `gpt-5.4-nano`).
+Routing, codegen, text helpers, chat, and the bounded planner default to **gpt-6-luna**;
+generation uses `BRODI_REASONING_EFFORT=none` and stable prompt-cache keys. Keep those
+defaults unless you explicitly intend to change them.
+`BRODI_LOCAL_WAKE=false` selects the legacy LiveKit console path, which uses cloud STT
+(`BRODI_VOICE_MODE=pipeline`) or Realtime (`BRODI_VOICE_MODE=realtime`).
 
 ## Setup
 
 ```bash
 uv sync
 cp .env.example .env.local   # OPENAI_API_KEY is the only required secret
+uv run python -m brodi.wake --download-model  # one-time offline speech asset download
 ```
 
 - macOS asks for Automation access per app the first time. Grant it in System Settings ▸
@@ -86,12 +89,18 @@ voice control, then give a command within 20 seconds. You can also combine them:
 - "Search YouTube for lofi beats."
 - "Open my Google Keep and show the top note."
 
-"Hey bro" by itself replies "Hey bro, I'm listening." "Search YouTube" asks what to
+"Hey bro" by itself replies "Gotcha." "Search YouTube" asks what to
 search for; answer with the topic, or say "cancel". During the active window, short
 commands work without repeating the wake phrase. After a task finishes, the window starts
-again. Set `BRODI_WAKE_WINDOW_S` to change its length, or `BRODI_WAKE_REQUIRED=0` for
-always-active voice control. Wake activation happens after transcription; the microphone
-and OpenAI transcription stay active while Brodi runs. It is not an offline wake-word detector.
+again. Set `BRODI_WAKE_WINDOW_S` to change its length. `BRODI_WAKE_MODE` accepts
+`continuous`, `hotkey`, or `both` (default). Audio stays local while waiting; accepted
+command text can reach cloud routing when the direct parser or memory cannot handle it.
+
+“Open Chrome and go to github.com” runs a bounded deterministic plan. Successful app/site
+commands become local SQLite shortcuts; repeating one skips model routing. Say “remember
+that my preferred browser is Arc,” “what do you remember?”, or “forget preferred browser.”
+Replacing facts and deleting memory require confirmation. “Type hello world into Notepad”
+uses an isolated Windows UIA helper and verifies the entered text.
 
 Opening apps and websites and simple searches use deterministic routing. Google Keep note
 tasks use the browser agent and need an already signed-in Chrome profile and remote debugging
@@ -101,16 +110,39 @@ it opens the Keep homepage and explains the setup step instead of claiming the n
 Run `brodi doctor` (or `python -m brodi.cli --doctor`) to check the API key, Chrome,
 browser connection, and policy. The diagnostic never prints the key or reads notes.
 Project settings load from `.env.local`, followed by `.env`, before runtime defaults
-are imported; existing environment variables take precedence.
+are imported; existing environment variables take precedence. `brodi.yaml` supplies
+lower-priority settings; copy [config.example.yaml](config.example.yaml).
 
 ```bat
-brodi start        :: Windows 11: detached voice assistant, local mic and speaker
-brodi status       :: is it still running, and for how long
-brodi log          :: transcripts, routes, errors
+brodi start        :: start the assistant and stream readable activity
+brodi status       :: stream current activity, accepted input, and output
+brodi status --once :: print a snapshot and exit
+brodi start --once  :: start in the background and print a snapshot
+brodi log          :: recent readable activity
+brodi debug        :: technical logs and tracebacks
 brodi stop
 brodi restart
 brodi doctor       :: check setup without recording audio or calling a model
 ```
+
+The live activity view shows **YOU**, **DOING**, **GATHERED**, **BRODI**, **RESULT**, and
+**STATE** rows: what Brodi heard, what it is doing, information returned by tools/pages,
+its reply, and whether it is listening or waiting for an answer. For example:
+
+```text
+13:04:01  YOU       Hey bro, open Chrome
+13:04:01  DOING     Opening Google Chrome
+13:04:02  GATHERED  Tool output
+                    Output: Google Chrome opened
+13:04:02  BRODI     Google Chrome opened
+13:04:02  RESULT    Task completed
+13:04:02  STATE     Listening for a task
+```
+
+In an interactive terminal, type **Q + Enter** to close the view while keeping the
+assistant running; **Ctrl+C** also closes the viewer. Use `brodi stop` to stop Brodi.
+The activity journal defaults to `.freebuff/activity.jsonl` (ignored by Git), or set
+`BRODI_ACTIVITY_LOG`. See [activity documentation](docs/ACTIVITY.md) for details.
 
 `brodi.cmd` forwards to `console.ps1` on Windows. On macOS, `brody` runs the same
 local console mode through `uv` and tracks its process for `status` and `stop`.
@@ -138,13 +170,9 @@ uv run python -m brodi.cli --dry "open github dot com"   # route only, no audio
 uv run python -m brodi.cli --policy               # every tool and whether policy allows it
 ```
 
-**Testing on a budget.** `BRODI_VOICE_MODE=realtime` and the default `gpt-6.1-sol` codegen
-model cost more. For cheap runs use the no-thinking pair below; routing is always the
-non-generative Decisions API (`gpt-6-luna`, ~300 input tokens per turn, no output tokens):
-
-```bash
-BRODI_CODEGEN_MODEL=gpt-5-nano BRODI_REASONING_EFFORT=minimal
-```
+See [implementation and smoke tests](docs/IMPLEMENTATION.md) for the new modules,
+configuration, live Windows results, and latency limits. Dispatch can be fast without
+making speech endpointing, application startup, or network navigation instantaneous.
 
 ## What it can and can't do
 
@@ -169,9 +197,16 @@ and the greeting says so out loud.
 
 ## Layout
 
+For the full module and runtime guide, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For Brodi's brief "gotcha / yo bro / got it / on it" voice and interaction rules, see
+[docs/PERSONAS.md](docs/PERSONAS.md). The [documentation index](docs/README.md) links both.
+
 | Path | Role |
 |---|---|
-| [`agent.py`](agent.py) | LiveKit entrypoint: OpenAI STT/LLM/TTS or Realtime, router before the LLM |
+| [`agent.py`](agent.py) | Local wake console by default; legacy LiveKit pipeline/Realtime and worker entrypoints |
+| [`brodi/wake.py`](brodi/wake.py), [`wake_runtime.py`](brodi/wake_runtime.py) | Offline microphone/wake lifecycle, hotkey, command capture, short speech replies |
+| [`brodi/memory.py`](brodi/memory.py), [`multi_step.py`](brodi/multi_step.py) | Local facts/shortcuts and bounded plans, observation, retry, approval continuation |
+| [`brodi/windows_uia.py`](brodi/windows_uia.py), [`native_launch.py`](brodi/native_launch.py) | Isolated native input/control and fast trusted Windows app launches |
 | [`brodi/decisions.py`](brodi/decisions.py) | OpenAI Decisions wrapper (choices/predicates, `responses.parse` fallback) |
 | [`brodi/router.py`](brodi/router.py) | Batched routing, speculative arguments, follow-up and completeness judgments |
 | [`brodi/agent.py`](brodi/agent.py) | State machine: act, ask, confirm, learn |

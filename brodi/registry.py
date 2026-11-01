@@ -113,6 +113,8 @@ class Tool:
         return bool(self.blocked_by)
 
     def is_available(self, ctx: MacContext) -> bool:
+        if self.runner == "windows_uia" and not os_backend.is_windows():
+            return False
         if self.blocked:
             return False
         scope = self.active_scope
@@ -162,6 +164,7 @@ class Tool:
             speak=d.get("speak", "done"),
             risky=bool(d.get("risky", False))
             or bool(RISKY_PATTERNS.search(d["script"]))
+            and not (d.get("runner") == "native_text" and os_backend.is_windows())
             or bool(RISKY_PATTERNS.search(d.get("script_win", ""))),
             source=source,  # type: ignore[arg-type]
             examples=list(d.get("examples", [])),

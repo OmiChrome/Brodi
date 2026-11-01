@@ -326,3 +326,24 @@ def check_browser_goal(goal: str) -> list[Violation]:
 
 def browser_goal_needs_confirm(goal: str) -> bool:
     return bool(BROWSER_CONFIRM_GOAL.search(goal))
+
+
+def memory_gate(operation: str, *, key: str, value: str = "", confirmed: bool = False, replacing: bool = False) -> None:
+    """Memory writes are data operations, not shell scripts. Destructive changes need approval."""
+    if operation not in {"set_fact", "store_shortcut", "delete"}:
+        raise ValueError("Unknown memory operation")
+    if not key.strip() or len(key) > 2000 or len(value) > 4000:
+        raise ValueError("Memory entry is empty or too long")
+    if re.search(
+        r"\b(password|passcode|api[_ -]?key|access[_ -]?token|secret)\b|\bsk-[\w-]{12,}", key + " " + value, re.I
+    ):
+        raise ValueError("Brodi does not store credentials in memory")
+    for name, secret in os.environ.items():
+        if (
+            len(secret) >= 8
+            and re.search(r"(?:KEY|SECRET|TOKEN|PASSWORD)$", name, re.I)
+            and secret in key + " " + value
+        ):
+            raise ValueError("Brodi does not store credentials in memory")
+    if (operation == "delete" or replacing) and not confirmed:
+        raise PermissionError("Confirm before deleting or replacing memory")

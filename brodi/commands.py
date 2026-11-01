@@ -117,6 +117,9 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
     if wake and not text:
         return Command(reply="Hey bro, I'm listening.")
     clean = text.rstrip(".!?")
+    typing = re.fullmatch(r"(?:type|write|enter)\s+(.+?)\s+(?:into|in)\s+(.+)", clean, re.I)
+    if typing:
+        return Command("type_text", {"text": typing[1], "app": typing[2]})
     if clean.lower() in {"search", "search for", "serach"}:
         return Command("chrome_open", {"site": "google", "query": ""}, "What should I search for?", "query")
     # Keep compound tasks in the browser agent, rather than dropping the second instruction.
@@ -154,6 +157,7 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
     opening = re.fullmatch(r"(?:open|launch|start|go to|navigate to|switch to|bring up)\s+(.+)", clean, re.I)
     if opening:
         target = opening[1].strip()
+        target = re.sub(r"\b(?:git|get)\s+hub(?=\s+dot|\.)", "github", target, flags=re.I)
         site = site_named(target)
         if site:
             return Command("chrome_open", {"site": site, "query": ""})

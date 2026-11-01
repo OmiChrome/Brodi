@@ -9,6 +9,12 @@ dependencies = [
     "pydantic>=2.10.0",
     "python-dotenv>=1.2.3",
     "websockets>=14.0",
+    "pywinauto>=0.6.8; sys_platform == 'win32'",
+    "sounddevice>=0.5",
+    "vosk>=0.3.45",
+    "webrtcvad-wheels>=2.0.14",
+    "pynput>=1.7.7",
+    "PyYAML>=6.0",
 ]
 
 [dependency-groups]

@@ -206,7 +206,7 @@ def test_evaluate_falls_back_to_responses_parse_without_decisions():
             },
         )
     )
-    assert fake.responses.kwargs["model"] == "gpt-5.4-nano"
+    assert fake.responses.kwargs["model"] == "gpt-6-luna"
     assert fake.responses.kwargs["reasoning"] == {"effort": "none"}
     assert fake.responses.kwargs["text_format"].__name__ == "DynamicBatchSchema"
     assert resp.choices["intent"].choice == "chat"

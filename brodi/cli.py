@@ -26,12 +26,33 @@ async def _main(argv: list[str]) -> int:
     ap.add_argument("--no-learn", action="store_true", help="disable the LLM tool-generation fallback")
     ap.add_argument("--policy", action="store_true", help="list every tool with its policy status and exit")
     ap.add_argument("--doctor", action="store_true", help="check setup and browser access without audio or model calls")
+    ap.add_argument("--memory", choices=["list", "clear", "forget"], help="inspect or explicitly clear local memory")
+    ap.add_argument("--memory-key", help="fact key or shortcut command to forget")
+    ap.add_argument("--yes", action="store_true", help="confirm the requested memory deletion")
     ap.add_argument("-v", "--verbose", action="store_true")
     ns = ap.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if ns.verbose else logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
     load_environment()
+
+    if ns.memory:
+        import json
+
+        from .memory import MemoryStore
+
+        store = MemoryStore()
+        if ns.memory == "list":
+            print(json.dumps(store.list(), ensure_ascii=False, indent=2))
+            return 0
+        if ns.memory == "forget" and not ns.memory_key:
+            ap.error("--memory forget requires --memory-key")
+        confirmed = ns.yes or (sys.stdin.isatty() and input("Delete saved memory? Type yes: ").strip().lower() == "yes")
+        if not confirmed:
+            print("Nothing deleted. Pass --yes or confirm interactively.")
+            return 2
+        print(f"Forgot {store.delete(ns.memory_key if ns.memory == 'forget' else None, confirmed=True)} entries.")
+        return 0
 
     if ns.doctor:
         from .diagnostics import report

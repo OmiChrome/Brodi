@@ -20,11 +20,12 @@ from livekit.plugins import openai as lk_openai
 from openai.types.realtime import AudioTranscription
 from openai.types.realtime.realtime_audio_input_turn_detection import SemanticVad
 
-from brodi.config import load_environment
+from brodi.config import flag, load_environment
 
 load_environment()
 
 from brodi import policy  # noqa: E402
+from brodi.activity import ActivityLog  # noqa: E402
 from brodi.agent import PENDING_TTL_S, DynamicMacAgent  # noqa: E402
 from brodi.voice import VoiceGate  # noqa: E402
 
@@ -38,7 +39,7 @@ No markdown, no lists, no emoji, no follow-up questions."""
 VOICE_MODE = os.environ.get("BRODI_VOICE_MODE", "pipeline")  # "pipeline" | "realtime"
 STT_MODEL = os.environ.get("BRODI_STT_MODEL", "gpt-4o-mini-transcribe-2025-12-15")
 TTS_MODEL = os.environ.get("BRODI_TTS_MODEL", "gpt-4o-mini-tts")
-CHAT_MODEL = os.environ.get("BRODI_CHAT_MODEL", "gpt-5.4-nano")
+CHAT_MODEL = os.environ.get("BRODI_CHAT_MODEL", "gpt-6-luna")
 REALTIME_MODEL = os.environ.get("BRODI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
 VOICE = os.environ.get("BRODI_VOICE", "onyx")  # deep male voice
 LANGUAGE = os.environ.get("BRODI_LANG", "en")
@@ -48,8 +49,9 @@ class BrodiAgent(Agent):
     def __init__(self, mac: DynamicMacAgent) -> None:
         super().__init__(instructions=INSTRUCTIONS)
         self.mac = mac
+        self.awaiting_chat_reply = False
         self.activation = VoiceGate(
-            required=os.environ.get("BRODI_WAKE_REQUIRED", "1") != "0",
+            required=flag("BRODI_WAKE_REQUIRED"),
             window_s=float(os.environ.get("BRODI_WAKE_WINDOW_S", "20")),
         )
 
@@ -66,6 +68,7 @@ class BrodiAgent(Agent):
             log.debug("ignoring speech while waiting for a wake phrase")
             raise StopResponse()
 
+        self.awaiting_chat_reply = False
         outcome = await self.mac.handle(text)
         self.activation.activate()  # start the reply window after a long task finishes, too
         route = outcome.route
@@ -76,6 +79,7 @@ class BrodiAgent(Agent):
             {k: round(v) for k, v in outcome.timings.items()},
         )
         if outcome.handoff_to_llm:
+            self.awaiting_chat_reply = True
             return  # normal LLM reply
 
         if outcome.stop:
@@ -116,7 +120,7 @@ def build_session() -> AgentSession:
             "preemptive_generation": {"enabled": False},
         },
         stt=lk_openai.STT(model=STT_MODEL, language=LANGUAGE),
-        llm=lk_openai.LLM(model=CHAT_MODEL, temperature=0.3),
+        llm=lk_openai.LLM(model=CHAT_MODEL, reasoning_effort="none"),
         tts=lk_openai.TTS(model=TTS_MODEL, voice=VOICE),
     )
 
@@ -127,8 +131,11 @@ server = AgentServer()
 @server.rtc_session(agent_name=os.environ.get("BRODI_AGENT_NAME", "brodi"))
 async def entrypoint(ctx: agents.JobContext) -> None:
     session: AgentSession | None = None
+    activity = ActivityLog()
+    activity.emit("status", "Starting Brodi")
 
     def _filler(text: str) -> None:
+        activity.emit("progress", text)
         if session is None:
             return
         try:
@@ -137,27 +144,85 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             pass
 
     mac = DynamicMacAgent(
-        enable_learning=os.environ.get("BRODI_LEARN", "1") != "0",
+        enable_learning=flag("BRODI_LEARN"),
         on_learning=_filler,
+        activity=activity,
     )
     await mac.start()
 
     session = build_session()
+    voice_agent = BrodiAgent(mac)
+
+    @session.on("agent_state_changed")
+    def _state_changed(event) -> None:
+        state = event.new_state
+        if state == "listening":
+            activity.emit("status", mac.waiting_status())
+        elif state == "speaking":
+            activity.emit("status", "Speaking")
+
+    @session.on("conversation_item_added")
+    def _conversation(event) -> None:
+        item = event.item
+        if voice_agent.awaiting_chat_reply and getattr(item, "role", None) == "assistant":
+            text = getattr(item, "text_content", None)
+            if text:
+                activity.emit("output", text)
+                voice_agent.awaiting_chat_reply = False
+
+    @session.on("error")
+    def _session_error(event) -> None:
+        error = getattr(event, "error", None)
+        activity.emit(
+            "error",
+            "Voice connection needs attention",
+            reason=str(getattr(error, "message", "Check brodi debug for connection details.")),
+        )
 
     async def _close() -> None:
         await mac.aclose()
+        activity.emit("status", "Brodi stopped")
 
     ctx.add_shutdown_callback(_close)
 
     log.info("pipeline: mode=%s stt=%s tts=%s voice=%s llm=%s", VOICE_MODE, STT_MODEL, TTS_MODEL, VOICE, CHAT_MODEL)
-    await session.start(agent=BrodiAgent(mac), room=ctx.room)
+    activity.emit("status", "Connecting microphone and speaker")
+    try:
+        await session.start(agent=voice_agent, room=ctx.room)
+    except Exception as exc:
+        activity.emit("error", "Could not start the voice session", reason=str(exc))
+        raise
+    activity.emit("status", "Listening for a task", hint="Say Hey bro or Yo bro")
     greeting = "Brodi ready. Say hey bro, then tell me what to do."
-    if os.environ.get("BRODI_WAKE_REQUIRED", "1") == "0":
+    if not flag("BRODI_WAKE_REQUIRED"):
         greeting = "Brodi ready. Tell me what to do."
     if not policy.ENABLED:
         greeting += " Warning: the safety policy is off."
+    activity.emit("output", greeting)
     session.say(greeting, add_to_chat_ctx=False, allow_interruptions=False)
 
 
 if __name__ == "__main__":
-    agents.cli.run_app(server)
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "console" and flag("BRODI_LOCAL_WAKE"):
+        import argparse
+
+        import sounddevice as sd
+
+        from brodi.wake_runtime import main
+
+        parser = argparse.ArgumentParser(description="Brodi local voice console")
+        parser.add_argument("--list-devices", action="store_true")
+        parser.add_argument("--input-device")
+        parser.add_argument("--output-device")
+        options = parser.parse_args(sys.argv[2:])
+        if options.list_devices:
+            print(sd.query_devices())
+            sys.exit(0)
+        for role in ("input", "output"):
+            if value := getattr(options, role + "_device"):
+                os.environ[f"BRODI_{role.upper()}_DEVICE"] = value
+        main()
+    else:
+        agents.cli.run_app(server)

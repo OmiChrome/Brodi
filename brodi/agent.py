@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from collections.abc import Callable
@@ -19,9 +20,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from . import browser_task, commands, policy, resolvers
+from . import browser_task, commands, os_backend, policy, resolvers
+from .activity import ActivityLog
 from .applescript import ContextPoller, run_applescript
+from .config import flag
 from .generator import DUPLICATE, ToolGenerator
+from .memory import MemoryStore
+from .multi_step import Plan, PlanRunner, Step, StepResult, cacheable, compose_plan, deterministic_plan, observe_desktop
 from .registry import Tool, ToolRegistry
 from .router import JevRouter, Route
 
@@ -68,6 +73,9 @@ class Outcome:
     executed: bool = False
     learned: Tool | None = None
     timings: dict[str, float] = field(default_factory=dict)
+    steps: list[dict] = field(default_factory=list)
+    memory_hit: bool = False
+    observation: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -85,10 +93,21 @@ class DynamicMacAgent:
         *,
         enable_learning: bool = True,
         on_learning: Callable[[str], Any] | None = None,
+        activity: ActivityLog | None = None,
+        memory: MemoryStore | None = None,
     ):
         """``on_learning(message)`` is called right before the slow codegen tier runs, so the
         voice layer can say a filler line instead of leaving silence."""
         self.on_learning = on_learning
+        self.activity = activity
+        self.memory = memory
+        if memory is None and registry is None and flag("BRODI_MEMORY_ENABLED"):
+            self.memory = MemoryStore(
+                retention_days=int(os.environ.get("BRODI_MEMORY_RETENTION_DAYS", "30")),
+                max_entries=int(os.environ.get("BRODI_MEMORY_MAX_ENTRIES", "500")),
+            )
+        self._pending_plan: dict | None = None
+        self._script_timeout: float | None = None
         self.registry = registry or ToolRegistry()
         self.router = JevRouter(self.registry)
         self.generator = ToolGenerator(self.registry, decisions=self.router.client) if enable_learning else None
@@ -114,12 +133,223 @@ class DynamicMacAgent:
     async def handle(self, utterance: str) -> Outcome:
         # A second transcript must not race a running browser task or consume its confirmation.
         async with self._turn_lock:
+            started = time.perf_counter()
+            if utterance.strip():
+                self._event("input", utterance)
+                self._event("status", "Understanding your task")
             try:
-                return await self._handle(utterance)
+                outcome = await self._handle(utterance)
             except Exception:
                 log.exception("command failed")
                 self.pending, self.pending_question, self.state = None, None, State.IDLE
-                return Outcome(speak="That didn't work. Please try again.")
+                self._pending_plan = None
+                outcome = Outcome(speak="That didn't work. Please try again.")
+                self._event("error", "The task failed unexpectedly; ready to try again")
+            if outcome.speak:
+                self._event("output", outcome.speak)
+            if outcome.executed:
+                if (
+                    self.memory
+                    and not outcome.memory_hit
+                    and cacheable(outcome.steps)
+                    and commands.normalize(utterance)[0].casefold().rstrip(".!?")
+                    not in {"open browser", "open my browser", "launch browser"}
+                ):
+                    try:
+                        self.memory.store_shortcut(utterance, outcome.steps)
+                    except (OSError, ValueError):
+                        log.exception("could not store shortcut")
+                self._event("result", "Task completed", duration=f"{time.perf_counter() - started:.1f}s")
+            if outcome.handoff_to_llm:
+                self._event("status", "Thinking of a reply")
+            else:
+                self._event("status", "Stopping" if outcome.stop else self.waiting_status())
+            return outcome
+
+    def _event(self, kind: str, message: str, **details: Any) -> None:
+        if self.activity is not None:
+            self.activity.emit(kind, message, **details)
+
+    def waiting_status(self) -> str:
+        if self.pending:
+            return "Waiting for your confirmation"
+        if self.pending_question or (self.last_browser and self.last_browser.get("status") == "needs_info"):
+            return "Waiting for your answer"
+        return "Listening for a task"
+
+    def _memory_command(self, text: str) -> Outcome | None:
+        if not self.memory:
+            return None
+        lower = text.lower().rstrip(".!?")
+        if lower in {"what do you remember", "show memory", "list memory"}:
+            saved = self.memory.list()
+            facts = [f"{row['key'].replace('_', ' ')}: {row['value']}" for row in saved["facts"] if not row["expired"]]
+            count = sum(not row["expired"] for row in saved["shortcuts"])
+            return Outcome(
+                speak=("; ".join(facts[:8]) + f". {count} saved shortcuts.") if facts or count else "Nothing saved yet."
+            )
+        forgetting = re.fullmatch(r"(?:forget|clear memory about)\s+(.+)", text, re.I)
+        if forgetting:
+            key = forgetting[1].strip().rstrip(".!?")
+            key = {
+                "my preferred browser": "preferred_browser",
+                "preferred browser": "preferred_browser",
+                "where i work": "work_directory",
+            }.get(key.lower(), key)
+            key = "" if key.lower() in {"everything", "all", "all memory"} else key
+            self._stage(
+                Tool(name="memory_change", description="Delete saved memory", script="", runner="memory", risky=True),
+                {"operation": "delete", "key": key},
+            )
+            return Outcome(speak=f"Forget {key or 'all saved memory'}? Say yes to confirm.")
+        remembering = re.fullmatch(r"remember(?: that)?\s+(.+)", text, re.I)
+        if not remembering:
+            return None
+        fact = remembering[1].strip().rstrip(".!?")
+        browser = re.fullmatch(r"my preferred browser is\s+(.+)", fact, re.I)
+        directory = re.fullmatch(r"I work in\s+(.+)", fact, re.I)
+        if browser:
+            key, value = "preferred_browser", browser[1]
+        elif directory:
+            key, value = "work_directory", directory[1]
+        else:
+            key, value = fact.casefold(), fact
+        try:
+            self.memory.set_fact(key, value)
+        except PermissionError:
+            self._stage(
+                Tool(name="memory_change", description="Replace a saved fact", script="", runner="memory", risky=True),
+                {"operation": "set", "key": key, "value": value},
+            )
+            return Outcome(speak=f"Replace {key.replace('_', ' ')} with {value}? Say yes to confirm.")
+        except ValueError as exc:
+            return Outcome(speak=str(exc))
+        return Outcome(speak="Got it. Remembered.", executed=True)
+
+    def _plan_catalog(self, ctx) -> list[dict]:
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "args": [
+                    {"name": a.name, "kind": a.kind, "criteria": a.resolve_criteria(ctx), "default": a.default}
+                    for a in tool.args
+                ],
+            }
+            for tool in self.registry.available(ctx)
+            if tool.runner not in {"browser", "memory"}
+        ]
+
+    async def _verify_step(self, outcome: Outcome, criterion: str) -> dict:
+        observation = {"tool_ok": outcome.executed, "output": (outcome.speak or "")[:600], **outcome.observation}
+        if outcome.executed and criterion not in {"", "Tool reports success"}:
+            from .decisions import PredicateQuestion
+
+            observation.update(await observe_desktop())
+            judged = await self.router.client.evaluate(
+                state={"criterion": criterion, "observed": observation},
+                questions={
+                    "met": PredicateQuestion(
+                        instructions="Does the observed result demonstrate the criterion? Do not assume unobserved state."
+                    )
+                },
+            )
+            outcome.executed = judged.predicates["met"].probability >= 0.6
+            if not outcome.executed:
+                outcome.speak = "I couldn't verify that step. Please check the app."
+        return observation
+
+    async def _run_plan(self, plan: Plan, utterance: str, *, context: dict | None = None) -> Outcome:
+        result = Outcome(route=Route("plan"))
+        ctx = await self.context.latest()
+        runner = PlanRunner()
+        used = context["used"] if context else 0
+        deadline = context["deadline"] if context else time.monotonic() + runner.total_timeout
+        previous = list(context["completed"]) if context else []
+        if used >= runner.max_steps or deadline <= time.monotonic():
+            result.speak = "I reached the plan limit. Tell me a smaller task."
+            return result
+        runner.max_steps -= used
+        runner.total_timeout = deadline - time.monotonic()
+
+        def validate(step: Step) -> Tool:
+            tool = self.registry.get(step.tool)
+            if tool is None or not tool.is_available(ctx) or tool.runner in {"browser", "memory"}:
+                raise ValueError("That plan contains an unavailable or unsupported tool.")
+            specs = {a.name: a for a in tool.args}
+            if set(step.args) - set(specs):
+                raise ValueError("That plan contains an unexpected argument.")
+            for name, spec in specs.items():
+                value = step.args.get(name, spec.default)
+                if value is None or (not value and spec.default is None):
+                    raise ValueError(f"I need the {name} before running that task.")
+                criteria = spec.resolve_criteria(ctx)
+                if spec.kind == "enum" and criteria and value not in criteria:
+                    raise ValueError(f"That plan selected an unknown {name}.")
+            violations = policy.check(tool.render(step.args), tool.active_scope)
+            if violations:
+                raise ValueError("That action is blocked by the safety policy.")
+            return tool
+
+        try:
+            for step in plan.steps:
+                validate(step)
+        except ValueError as exc:
+            result.speak = str(exc)
+            return result
+
+        async def execute_step(step: Step, timeout: float) -> StepResult:
+            try:
+                tool = validate(step)  # Recovery steps use exactly the same gate.
+            except ValueError as exc:
+                return StepResult(False, str(exc))
+            if tool.risky:
+                self._stage(tool, dict(step.args), utterance)
+                return StepResult(False, f"That will {_say_tool(tool, step.args)}. Go ahead?", paused=True)
+            self._event("progress", "Running the next step", action=tool.description)
+            outcome = Outcome()
+            self._script_timeout = timeout
+            try:
+                await self._execute(tool, dict(step.args), outcome, utterance=utterance)
+            finally:
+                self._script_timeout = None
+            observation = await self._verify_step(outcome, step.success)
+            return StepResult(outcome.executed, outcome.speak or "", observation)
+
+        async def recover(step: Step, observation: dict) -> Step | None:
+            self._event("progress", "The step failed twice; planning a bounded recovery", observation=observation)
+            alternative = await compose_plan(
+                f"Recover only this failed action: {step.model_dump_json()}. Never repeat earlier completed actions.",
+                self._plan_catalog(ctx),
+                self.router.client.openai_client,
+                observation,
+            )
+            if len(alternative.steps) == 1:
+                alternative.steps[0].success = step.success
+                return alternative.steps[0]
+            return None
+
+        ran = await runner.run(
+            plan,
+            execute_step,
+            observe_desktop,
+            retry_safe=lambda step: step.tool in {"open_app", "chrome_open"} and not validate(step).risky,
+            recover=recover,
+        )
+        completed = previous + [
+            {"tool": step.tool, "args": step.args, "success": step.success} for step in ran.completed
+        ]
+        if ran.paused_at is not None:
+            self._pending_plan = {
+                "remaining": plan.steps[ran.paused_at + 1 :],
+                "completed": completed,
+                "used": used + ran.attempts,
+                "deadline": deadline,
+                "utterance": utterance,
+                "success": plan.steps[ran.paused_at].success,
+            }
+        result.executed, result.speak, result.steps = ran.ok, ran.message, completed if ran.ok else []
+        return result
 
     async def _handle(self, utterance: str) -> Outcome:
         utterance, wake = commands.normalize(utterance)
@@ -127,13 +357,31 @@ class DynamicMacAgent:
             return Outcome(speak="Hey bro, I'm listening." if wake else None)
         if self.pending and time.time() - self.pending.staged_at > PENDING_TTL_S:
             self.pending, self.state = None, State.IDLE
+            self._pending_plan = None
             if utterance.lower().rstrip(".!?") in {"yes", "sure", "go ahead", "do it"}:
                 return Outcome(speak="That confirmation expired. Tell me the command again.")
+        if self.memory and not self.pending and not self.pending_question:
+            memory_result = self._memory_command(utterance)
+            if memory_result is not None:
+                return memory_result
+            shortcut = self.memory.match_shortcut(utterance)
+            if shortcut:
+                self._event("progress", "Using your saved shortcut; no model routing needed")
+                result = await self._run_plan(Plan(steps=[Step(**step) for step in shortcut.steps]), utterance)
+                result.memory_hit = True
+                return result
+            if utterance.casefold().rstrip(".!?") in {"open browser", "open my browser", "launch browser"}:
+                if preferred := self.memory.get_fact("preferred_browser"):
+                    utterance = "open " + preferred
         t0 = time.perf_counter()
         ctx = await self.context.latest()
         t_ctx = time.perf_counter()
 
         recent = self._recent_browser()
+        if not self.pending and not self.pending_question and flag("BRODI_ENABLE_MULTI_STEP"):
+            plan = deterministic_plan(utterance, ctx.running_apps + ctx.installed_apps)
+            if plan:
+                return await self._run_plan(plan, utterance)
         route = None
         if self.pending_question:
             question, asked_at = self.pending_question
@@ -162,9 +410,26 @@ class DynamicMacAgent:
                 question.kind, question.reply, question.missing_arg = "tool", "", ""
                 route = question
         if route is None:
-            route = await self.router.route(
-                utterance, ctx, awaiting_confirmation=self.state is State.AWAITING_CONFIRM, recent_browser=recent
-            )
+            answer = utterance.casefold().rstrip(".!?")
+            if self.pending and answer in {
+                "yes",
+                "yeah",
+                "yep",
+                "go ahead",
+                "do it",
+                "confirmed",
+                "sure",
+                "no",
+                "cancel",
+                "never mind",
+                "nevermind",
+            }:
+                denied = answer in {"no", "cancel", "never mind", "nevermind"}
+                route = Route("chat", is_confirmation=0 if denied else 1, is_denial=1 if denied else 0)
+            else:
+                route = await self.router.route(
+                    utterance, ctx, awaiting_confirmation=self.state is State.AWAITING_CONFIRM, recent_browser=recent
+                )
         # A follow-up to the browser task wins over whatever else Jev matched (often a mis-scoped web_task).
         if (
             recent
@@ -219,14 +484,61 @@ class DynamicMacAgent:
         if self.state is State.AWAITING_CONFIRM and self.pending:
             if route.is_confirmation >= CONFIRM_THRESHOLD and route.is_confirmation > route.is_denial:
                 pending, self.pending, self.state = self.pending, None, State.IDLE
-                await self._execute(pending.tool, pending.args, outcome, utterance=pending.utterance)
+                if self._pending_plan and time.monotonic() >= self._pending_plan["deadline"]:
+                    self._pending_plan = None
+                    outcome.speak = "That plan expired. Tell me the task again."
+                    return outcome
+                if self._pending_plan:
+                    timeout = min(
+                        int(os.environ.get("BRODI_STEP_TIMEOUT_MS", "8000")) / 1000,
+                        self._pending_plan["deadline"] - time.monotonic(),
+                    )
+                    self._script_timeout = timeout
+                    try:
+
+                        async def confirmed_step():
+                            await self._execute(pending.tool, pending.args, outcome, utterance=pending.utterance)
+                            await self._verify_step(outcome, self._pending_plan["success"])
+
+                        await asyncio.wait_for(confirmed_step(), timeout)
+                    except TimeoutError:
+                        self._pending_plan = None
+                        return Outcome(speak="That step timed out. Check the app before retrying.")
+                    finally:
+                        self._script_timeout = None
+                else:
+                    await self._execute(pending.tool, pending.args, outcome, utterance=pending.utterance)
+                if self._pending_plan:
+                    context, self._pending_plan = self._pending_plan, None
+                    if not outcome.executed:
+                        return outcome
+                    context["completed"].append(
+                        {"tool": pending.tool.name, "args": pending.args, "success": context["success"]}
+                    )
+                    if context["remaining"]:
+                        return await self._run_plan(
+                            Plan(steps=context["remaining"]), context["utterance"], context=context
+                        )
+                    outcome.steps = context["completed"]
                 return outcome
             if route.is_denial >= CONFIRM_THRESHOLD:
                 self.pending, self.state = None, State.IDLE
+                self._pending_plan = None
                 outcome.speak = "Cancelled."
                 return outcome
             # Neither: drop the pending action and treat this as a new command.
             self.pending, self.state = None, State.IDLE
+            self._pending_plan = None
+
+        if route.multi_step and flag("BRODI_ENABLE_MULTI_STEP"):
+            plan = await asyncio.wait_for(
+                compose_plan(utterance, self._plan_catalog(ctx), self.router.client.openai_client),
+                min(
+                    int(os.environ.get("BRODI_STEP_TIMEOUT_MS", "8000")) / 1000,
+                    float(os.environ.get("BRODI_PLAN_TIMEOUT_S", "40")),
+                ),
+            )
+            return await self._run_plan(plan, utterance)
 
         if route.kind == "chat":
             outcome.handoff_to_llm = True
@@ -314,6 +626,7 @@ class DynamicMacAgent:
                 self.on_learning("I don't know that one yet. Give me a moment.")
             except Exception:  # never let UX sugar break the pipeline
                 log.exception("on_learning callback failed")
+        self._event("status", "Learning how to do this task")
         tool, msg = await self.generator.generate(utterance, ctx)
         outcome.timings["codegen_ms"] = (time.perf_counter() - t_route) * 1e3
         if tool is None:
@@ -349,8 +662,10 @@ class DynamicMacAgent:
             outcome.speak = refusal
             return
         site = args.get("site", "other")
+        self._event("status", "Checking browser access")
         access_error = await asyncio.to_thread(browser_task.access_error)
         if access_error:
+            self._event("error", access_error)
             outcome.speak = access_error
             # At least show the requested site when note interaction is unavailable.
             if site == "google_keep" and (opener := self.registry.get("chrome_open")):
@@ -378,6 +693,7 @@ class DynamicMacAgent:
 
         # Rewrite the raw sentence into a self-contained objective with a visible success criterion.
         t0 = time.perf_counter()
+        self._event("status", "Planning the browser task")
         context: dict[str, Any] = {"today": time.strftime("%A %d %B %Y")}
         if recent:
             context["conversation_so_far"] = recent["goal"]
@@ -391,6 +707,7 @@ class DynamicMacAgent:
             objective, success, search_query = utterance.strip(), "", None
         outcome.timings["compose_ms"] = (time.perf_counter() - t0) * 1e3
         log.info("browser objective: %s | success: %s | search: %s", objective, success, search_query)
+        self._event("action", "Working in Chrome", goal=objective)
         goal = objective + (f"\nDone when: {success}" if success else "")
         if reuse:
             goal += "\nContinue from the current page state; do not redo completed steps."
@@ -401,7 +718,10 @@ class DynamicMacAgent:
             start_url = "" if reuse else browser_task.start_url_for(site, objective, None)
 
         t0 = time.perf_counter()
-        result = await browser_task.run_task(start_url, goal, on_progress=self.on_learning, reuse_target=reuse)
+        activity_options = {"on_activity": self._browser_event} if self.activity is not None else {}
+        result = await browser_task.run_task(
+            start_url, goal, on_progress=self.on_learning, reuse_target=reuse, **activity_options
+        )
         achieved: float | None = None
         if result.status == "blocked" and success and result.page_text:
             # The agent may have stopped because the results were already the answer.
@@ -419,11 +739,19 @@ class DynamicMacAgent:
                 log.info("outcome not confirmed (%.2f); one more round", achieved)
                 nudge = goal + f"\nNOT yet achieved: the page does not show {success}. Keep going from here."
                 result = await browser_task.run_task(
-                    "", nudge, on_progress=self.on_learning, reuse_target=result.target_id
+                    "", nudge, on_progress=self.on_learning, reuse_target=result.target_id, **activity_options
                 )
                 if result.status == "done":
                     achieved = await self._verify_outcome(objective, success, result)
         outcome.timings["browser_ms"] = (time.perf_counter() - t0) * 1e3
+        self._event(
+            "observation",
+            "Browser result",
+            status=result.status,
+            title=result.title,
+            url=result.url,
+            visible_text=result.page_text,
+        )
         outcome.executed = result.status == "done" and (achieved is None or achieved >= ACHIEVED_THRESHOLD)
         log.info(
             "browser task %s: %s steps=%d %.0fms achieved=%s url=%s reuse=%s",
@@ -456,6 +784,9 @@ class DynamicMacAgent:
             reason = await self._explain_stall(goal, result)
             if reason:
                 outcome.speak = f"{result.spoken} {reason}"
+
+    def _browser_event(self, kind: str, message: str, details: dict[str, Any]) -> None:
+        self._event(kind, message, **details)
 
     async def _verify_outcome(self, objective: str, success: str, result: browser_task.BrowserResult) -> float | None:
         """Independent check that the final page actually shows what the user asked for."""
@@ -556,10 +887,72 @@ class DynamicMacAgent:
     async def _execute(
         self, tool: Tool, args: dict[str, str], outcome: Outcome, prefix: str = "", utterance: str = ""
     ) -> None:
+        if tool.name in {"open_app", "quit_app", "type_text"}:
+            app = args.get("app", "").strip().casefold().removesuffix(".exe")
+            if app in policy.BLOCKED_APPS | policy.WINDOWS_BLOCKED_APPS:
+                outcome.speak = "That application is blocked by the safety policy."
+                return
         if tool.runner == "browser":
             await self._execute_browser(tool, args, outcome, utterance)
             return
+        if tool.runner == "memory":
+            if not self.memory:
+                outcome.speak = "Memory is disabled."
+                return
+            if args["operation"] == "delete":
+                self.memory.delete(args.get("key") or None, confirmed=True)
+            else:
+                self.memory.set_fact(args["key"], args["value"], confirmed=True)
+            outcome.executed, outcome.speak = True, "Got it."
+            return
+        if tool.runner == "native_text" and os_backend.is_windows():
+            from .windows_uia import WindowTarget, execute
+
+            self._event("action", "Typing into " + args.get("app", "the selected app"))
+            result = await execute(
+                "set_text",
+                WindowTarget(title=args.get("app", "")),
+                text=args.get("text", ""),
+                append=True,
+                timeout=min(3, self._script_timeout or 3),
+            )
+            outcome.executed = result.ok
+            outcome.speak = "Got it." if result.ok else result.error
+            self._event(
+                "observation" if result.ok else "error", "Text input result", output=result.output or result.error
+            )
+            return
+        if tool.runner == "windows_uia" and os_backend.is_windows():
+            from .windows_uia import WindowTarget, execute
+
+            operation = {
+                "focus_window": "focus_window",
+                "window_state": "get_window_state",
+                "click_native_button": "click_button",
+            }.get(tool.name)
+            if not operation:
+                outcome.speak = "Unsupported Windows control action."
+                return
+            self._event("action", tool.description)
+            result = await execute(
+                operation,
+                WindowTarget(title=args.get("app", "")),
+                timeout=min(3, self._script_timeout or 3),
+                **({"name": args.get("name", "")} if operation == "click_button" else {}),
+            )
+            outcome.executed = result.ok
+            if result.ok and operation == "get_window_state":
+                import json
+
+                outcome.speak = json.loads(result.output).get("title", "That window") + " is open."
+            else:
+                outcome.speak = "Got it." if result.ok else result.error
+            self._event(
+                "observation" if result.ok else "error", "Window control result", output=result.output or result.error
+            )
+            return
         if tool.computed:
+            self._event("status", "Looking up information for your task")
             args = dict(args)
             t_r = time.perf_counter()
             for name, spec in tool.computed.items():
@@ -574,14 +967,39 @@ class DynamicMacAgent:
         if violations:
             log.warning("policy blocked %s(%s): %s", tool.name, args, "; ".join(map(str, violations)))
             outcome.speak = f"{prefix}I can't do that. Voice control isn't allowed to {_say_violation(violations[0])}."
+            self._event("error", "The action was blocked by the safety policy", reason=_say_violation(violations[0]))
             return
+        self._event("action", _activity_action(tool, args))
         t0 = time.perf_counter()
-        result = await run_applescript(script)
+        result = None
+        fast_launch = False
+        if (
+            os_backend.is_windows()
+            and tool.source == "seed"
+            and tool.name in {"open_app", "chrome_open"}
+            and flag("BRODI_FAST_LAUNCH")
+        ):
+            from .native_launch import execute
+
+            result = await execute(tool.name, args)
+            fast_launch = result is not None
+        if result is None:
+            result = (
+                await run_applescript(script, timeout=self._script_timeout)
+                if self._script_timeout
+                else await run_applescript(script)
+            )
         outcome.timings["exec_ms"] = (time.perf_counter() - t0) * 1e3
         outcome.executed = result.ok
+        outcome.observation = {"tool_ok": result.ok, "output": result.output[:1000], "error": result.error[:300]}
+        if result.output:
+            self._event("observation", "Tool output", output=result.output)
         if result.ok and args:
             self.last_args[tool.name] = dict(args)
+        if result.ok:
+            outcome.steps.append({"tool": tool.name, "args": dict(args)})
         if not result.ok:
+            self._event("error", "The action did not finish", reason=result.error)
             log.warning("tool %s failed: %s", tool.name, result.error)
             outcome.speak = f"{prefix}That didn't work: {_short(result.error)}"
             return
@@ -597,7 +1015,9 @@ class DynamicMacAgent:
                 "site": BROWSER_OPENERS[tool.name](args),
                 "finished_at": time.time(),
             }
-        if tool.speak == "done":
+        if fast_launch:
+            outcome.speak = "Got it."
+        elif tool.speak == "done":
             outcome.speak = f"{prefix}Done." if prefix else "Done."
         elif tool.speak == "result":
             outcome.speak = f"{prefix}{out or 'Done.'}"
@@ -628,6 +1048,29 @@ BROWSER_OPENERS: dict[str, Callable[[dict[str, str]], str]] = {
     "safari_open": lambda a: "google",
     "youtube_play": lambda a: "youtube",
 }
+
+
+def _activity_action(tool: Tool, args: dict[str, str]) -> str:
+    if tool.name == "open_app":
+        return "Opening " + args.get("app", "the app")
+    if tool.name == "quit_app":
+        return "Closing " + args.get("app", "the app")
+    if tool.name == "chrome_open":
+        site = args.get("site", "other")
+        name = {"youtube": "YouTube", "google_keep": "Google Keep", "gmail": "Gmail", "github": "GitHub"}.get(
+            site, site.replace("_", " ").title()
+        )
+        query = args.get("query", "")
+        if query and site in commands.SEARCH_URLS and commands.site_named(query) != site:
+            return f"Searching {name} for {query}"
+        return "Opening " + (query if site == "other" else name)
+    return {
+        "youtube_play": "Finding a video on YouTube",
+        "set_volume": "Changing the volume",
+        "take_screenshot": "Taking a screenshot",
+        "notes_create": "Creating a note",
+        "finder_open_folder": "Opening a folder",
+    }.get(tool.name, tool.description.rstrip("."))
 
 
 def _browser_refusal(utterance: str, forbidden_p: float) -> str | None:

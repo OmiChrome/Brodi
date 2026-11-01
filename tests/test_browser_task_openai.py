@@ -39,7 +39,7 @@ def test_compose_goal_uses_responses_parse(monkeypatch):
     composed = browser_task.compose_goal_sync("find me a bag", {"today": "Sunday 01 November 2026"})
     assert composed.objective == "find a bag"
     call = fake.responses.calls[0]
-    assert call["model"] == "gpt-5.4-nano"
+    assert call["model"] == "gpt-6-luna"
     assert call["text_format"] is ComposedGoal
     assert call["reasoning"] == {"effort": "none"}
 
@@ -49,7 +49,7 @@ def test_field_text_uses_responses_parse(monkeypatch):
     monkeypatch.setattr(browser_task, "_get_client", lambda: fake)
     value, meta = browser_task._field_text_sync({"goal": "leave Nov 7", "field": {"label": "Departure"}})
     assert value == "Nov 7"
-    assert meta["model"] == "gpt-5.4-nano"
+    assert meta["model"] == "gpt-6-luna"
     assert fake.responses.calls[0]["text_format"] is FieldText
 
 
@@ -135,7 +135,7 @@ def test_cdp_click_then_done_loop():
 def test_cdp_fill_uses_field_text(monkeypatch):
     cdp = FakeCDP()
     decisions = LoopDecisions(["fill", "done"])
-    monkeypatch.setattr(browser_task, "_field_text_sync", lambda context: ("Nov 7", {"model": "gpt-5.4-nano"}))
+    monkeypatch.setattr(browser_task, "_field_text_sync", lambda context: ("Nov 7", {"model": "gpt-6-luna"}))
     result = run_task_sync("https://shop.test/", "set the departure date", cdp=cdp, decisions=decisions)
     assert result.status == "done"
     inserted = [c for c in cdp.calls if c[0] == "Input.insertText"]
@@ -198,3 +198,17 @@ def test_closed_followup_tab_navigates_replacement_instead_of_waiting_on_blank()
     )
     assert result.status == "done"
     assert any(c[0] == "Page.navigate" and c[2]["url"] == "https://shop.test/" for c in cdp.calls)
+
+
+def test_browser_activity_shows_gathered_page_and_action():
+    events = []
+    result = run_task_sync(
+        "https://shop.test/",
+        "Open search",
+        cdp=FakeCDP(),
+        decisions=LoopDecisions(["click", "done"]),
+        on_activity=lambda *args: events.append(args),
+    )
+    assert result.status == "done"
+    assert events[0][0] == "observation" and events[0][2]["visible_text"] == "results"
+    assert any(kind == "action" and message == "Clicking Search" for kind, message, _ in events)

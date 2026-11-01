@@ -76,3 +76,18 @@ def test_cli_doctor_never_starts_agent(monkeypatch, capsys):
     monkeypatch.setattr(diagnostics, "report", lambda: [("Browser access", False, "enable debugging")])
     assert asyncio.run(cli._main(["--doctor"])) == 1
     assert "NEEDS SETUP Browser access" in capsys.readouterr().out
+
+
+def test_yaml_is_safe_and_environment_takes_precedence(monkeypatch, tmp_path):
+    path = tmp_path / "settings.yaml"
+    path.write_text("BRODI_WAKE_MODE: hotkey\nBRODI_LOCAL_WAKE: false\nBRODI_MAX_STEPS: 4\n")
+    monkeypatch.setenv("BRODI_CONFIG", str(path))
+    monkeypatch.setenv("BRODI_WAKE_MODE", "continuous")
+    monkeypatch.delenv("BRODI_LOCAL_WAKE", raising=False)
+    monkeypatch.delenv("BRODI_MAX_STEPS", raising=False)
+    config.load_environment(tmp_path)
+    assert os.environ["BRODI_WAKE_MODE"] == "continuous"
+    assert config.flag("BRODI_LOCAL_WAKE") is False
+    assert os.environ["BRODI_MAX_STEPS"] == "4"
+    monkeypatch.delenv("BRODI_LOCAL_WAKE")
+    monkeypatch.delenv("BRODI_MAX_STEPS")

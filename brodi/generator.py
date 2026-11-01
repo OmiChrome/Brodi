@@ -1,6 +1,6 @@
 """Fallback tier: OpenAI writes a new tool for an unseen request.
 
-One ``OPENAI_API_KEY`` drives everything: the Responses API writes a tool (``gpt-6.1-sol``)
+One ``OPENAI_API_KEY`` drives model services: the Responses API writes a tool (``gpt-6-luna``)
 and the Decisions API reviews it. Generated tools are compiled without executing
 (``osacompile`` on macOS, the PowerShell AST parser on Windows 11) before they are
 registered and persisted to ``tools/learned.json``.
@@ -21,12 +21,13 @@ from pydantic import BaseModel, Field
 from . import os_backend, policy
 from .applescript import MacContext
 from .decisions import ChoiceQuestion, DecisionsClient, PredicateQuestion
+from .models import cache_key, model
 from .registry import BUILTIN_PLACEHOLDERS, RISKY_PATTERNS, ArgSpec, PolicyError, Tool, ToolRegistry
 
 log = logging.getLogger("brodi.generator")
 
-MODEL = os.environ.get("BRODI_CODEGEN_MODEL", "gpt-6.1-sol")
-REASONING_EFFORT = os.environ.get("BRODI_REASONING_EFFORT", "low")
+MODEL = model("codegen")
+REASONING_EFFORT = os.environ.get("BRODI_REASONING_EFFORT", "none")
 MAX_ATTEMPTS = int(os.environ.get("BRODI_CODEGEN_ATTEMPTS", "3"))
 MAX_OUTPUT_TOKENS = int(os.environ.get("BRODI_CODEGEN_MAX_TOKENS", "1500"))
 VERIFY_THRESHOLD = float(os.environ.get("BRODI_VERIFY_THRESHOLD", "0.4"))
@@ -292,6 +293,7 @@ class ToolGenerator:
                 text_format=GeneratedTool,
                 max_output_tokens=MAX_OUTPUT_TOKENS,
                 reasoning={"effort": REASONING_EFFORT},
+                prompt_cache_key=cache_key("codegen", messages[0]),
             )
         except openai.APIConnectionError as exc:
             raise _Unavailable("I can't reach OpenAI right now, so I can't learn that action.") from exc
