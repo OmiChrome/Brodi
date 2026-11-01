@@ -53,7 +53,7 @@ Voice recognition still uses OpenAI, including when a command takes a local shor
 | “Remember that my preferred browser is Arc.” | Saves the preference locally. |
 | “What do you remember?” | Shows saved facts and the shortcut count. |
 
-Start Brodi and wait for the short rising chime and **“Listening.”** Then speak. **“Hey bro” is optional.** Say **“cancel”** to dismiss a pending question or action.
+Start Brodi and wait for the short rising chime. In foreground mode, **“Hey bro” is optional.** With [sign-in startup enabled](docs/WAKE.md), say **“Hey bro wake up.”** Brodi says **“Yes sir, I'm listening.”** and then plays a ready beep; speak your command after the beep. This works on macOS and Windows. Say **“cancel”** to dismiss a pending question or action.
 
 ### Mute during a demo
 

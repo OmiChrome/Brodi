@@ -11,6 +11,8 @@ from .commands import normalize
 if TYPE_CHECKING:
     from .agent import Outcome
 
+WAKE_REPLY = "Yes sir, I'm listening."
+
 
 def english_script(text: str) -> bool:
     """Reject non-Latin speech transcripts before tools; retain English names with accents.
@@ -26,10 +28,15 @@ def spoken_reply(outcome: Outcome, *, confirmation: bool = False, missing: str =
 
     Do not truncate arbitrary result text: that can hide a failure or accidentally
     read a number, a foreign-language page, or a generated tool's long template.
-    Every possible reply has at most two words.
+    Task replies have at most two words; the wake acknowledgement is explicit.
     """
     if outcome.stop:
         return "Goodbye."
+    route = outcome.route
+    text = (outcome.speak or "").strip()
+    lower = text.casefold()
+    if lower in {"hey bro, i'm listening.", "yo bro.", "listening."} or (route and route.kind == "greeting"):
+        return WAKE_REPLY
     if confirmation:
         return "Review action."
     if missing:
@@ -45,17 +52,12 @@ def spoken_reply(outcome: Outcome, *, confirmation: bool = False, missing: str =
             "product": "Which product?",
             "site": "Which site?",
         }.get(missing, "More details?")
-    route = outcome.route
     if outcome.handoff_to_llm or (route and route.kind == "chat"):
         return "Commands only."
-    text = (outcome.speak or "").strip()
     if not text:
         return None
-    lower = text.casefold()
     if lower in {"cancelled.", "canceled."}:
         return "Cancelled."
-    if lower in {"hey bro, i'm listening.", "yo bro.", "listening."} or (route and route.kind == "greeting"):
-        return "Listening."
     if "expired" in lower:
         return "Please repeat."
     if "timed out" in lower or "timeout" in lower:

@@ -9,13 +9,15 @@ from test_voice_session import voice_entrypoint
 
 from brodi.agent import Outcome
 from brodi.router import Route
-from brodi.voice import english_script, spoken_reply
+from brodi.voice import WAKE_REPLY, english_script, spoken_reply
 
 
 @pytest.mark.parametrize(
     "outcome,options,expected",
     [
-        (Outcome(speak="Hey bro, I'm listening."), {}, "Listening."),
+        (Outcome(speak="Hey bro, I'm listening."), {}, WAKE_REPLY),
+        (Outcome(speak="Hey bro, I'm listening."), {"confirmation": True}, WAKE_REPLY),
+        (Outcome(route=Route("greeting")), {}, WAKE_REPLY),
         (Outcome(speak="Done with every requested step.", executed=True), {}, "Got it."),
         (Outcome(speak="That didn't work. Please try again."), {}, "Didn't work."),
         (Outcome(speak="Cancelled."), {}, "Cancelled."),
@@ -42,7 +44,7 @@ def test_spoken_feedback_preserves_state_without_reading_arbitrary_text(outcome,
     assert reply == expected
     assert outcome.speak == detailed  # Full result/approval details remain available to the activity UI.
     if reply:
-        assert len(reply.split()) < 3
+        assert reply == WAKE_REPLY or len(reply.split()) < 3
         assert reply.isascii()
 
 

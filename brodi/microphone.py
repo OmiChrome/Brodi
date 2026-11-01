@@ -9,6 +9,7 @@ import sys
 import time
 from array import array
 
+from livekit import rtc
 from livekit.agents.voice import io
 
 from .hotkey import GlobalMicHotkey
@@ -29,6 +30,12 @@ def chime_pcm(listening: bool) -> bytes:
     if sys.byteorder != "little":
         samples.byteswap()
     return samples.tobytes()
+
+
+async def ready_chime_frames():
+    """Play the local ready cue through the session's speaker on either OS."""
+    pcm = chime_pcm(True)
+    yield rtc.AudioFrame(data=pcm, sample_rate=SAMPLE_RATE, num_channels=1, samples_per_channel=len(pcm) // 2)
 
 
 async def play_chime(listening: bool):

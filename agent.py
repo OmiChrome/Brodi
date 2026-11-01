@@ -30,16 +30,18 @@ from brodi.activity import ActivityLog  # noqa: E402
 from brodi.agent import PENDING_TTL_S, DynamicMacAgent  # noqa: E402
 from brodi.api_errors import report_api_error  # noqa: E402
 from brodi.console_audio import close_console_audio  # noqa: E402
-from brodi.microphone import MicrophoneControl  # noqa: E402
+from brodi.microphone import MicrophoneControl, ready_chime_frames  # noqa: E402
 from brodi.speech import SpeechSettings, speech_speed  # noqa: E402
 from brodi.transcription import DEFAULT_MODEL as DEFAULT_STT_MODEL  # noqa: E402
 from brodi.transcription import complete_transcript_turns, create_stt  # noqa: E402
-from brodi.voice import VoiceGate, english_script, spoken_reply  # noqa: E402
+from brodi.voice import WAKE_REPLY, VoiceGate, english_script, spoken_reply  # noqa: E402
 
 log = logging.getLogger("brodi.voice")
 
 INSTRUCTIONS = """Brodi executes English desktop commands. It is not a conversational assistant.
-Spoken output is English only, with at most two words. All actions go through the tool router."""
+Spoken output is English only. Task replies have at most two words.
+On wake, say "Yes sir, I'm listening." followed by the ready chime.
+All actions go through the tool router."""
 
 VOICE_MODE = os.environ.get("BRODI_VOICE_MODE", "pipeline")
 STT_MODEL = os.environ.get("BRODI_STT_MODEL", DEFAULT_STT_MODEL)
@@ -120,6 +122,13 @@ class BrodiAgent(Agent):
         if reply:
             try:
                 await self.session.say(reply, add_to_chat_ctx=False, allow_interruptions=False)
+                if reply == WAKE_REPLY:
+                    # Await actual speech playout before the cue. Both use the same
+                    # audio output, including headphones and remote LiveKit rooms.
+                    await self.session.say(
+                        "", audio=ready_chime_frames(), add_to_chat_ctx=False, allow_interruptions=False
+                    )
+                    self.activation.activate()  # Give the full command window after the ready cue.
             except RuntimeError as exc:  # session closing mid-turn
                 log.warning("could not speak result: %s", exc)
         raise StopResponse()
@@ -237,7 +246,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     ctx.add_shutdown_callback(_close)
 
     log.info(
-        "pipeline: command-only language=en max_spoken_words=2 stt=%s tts=%s voice=%s", STT_MODEL, TTS_MODEL, VOICE
+        "pipeline: command-only language=en max_task_reply_words=2 stt=%s tts=%s voice=%s", STT_MODEL, TTS_MODEL, VOICE
     )
     activity.emit("status", "Connecting microphone and speaker")
     try:

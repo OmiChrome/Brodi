@@ -17,9 +17,11 @@ chmod +x brody
 
 Close the terminal and say **"Hey bro, open GitHub."** The full request is handled
 by the normal tool router. Say **"Hey bro"** or **"Hey bro, wake up"** to hear
-**"Listening"** and open a 20-second command window. Follow-up commands and answers
-work in that window; after it expires, say the wake phrase again. Pending confirmations keep their existing
-timeout and policy checks.
+**"Yes sir, I'm listening."**, followed by a short ready beep on your selected
+speaker or headphones. Then speak your command. This sequence works on macOS and
+Windows; the 20-second command window starts after the beep finishes. Follow-up
+commands and answers work in that window; after it expires, say the wake phrase
+again. Pending confirmations keep their existing timeout and policy checks.
 
 No app window needs to be open. A background supervisor and cloud voice process
 do need to stay running. The service starts when you sign in and restarts the
@@ -34,8 +36,9 @@ transcription service, needs internet access, and incurs API usage. Wake gating
 controls which transcribed requests reach the tool router; it is not a local
 wake-word model. Background mode uses the cloud pipeline and retains the 1.25x
 Onyx voice setting. Recognition and speech are English-only; acknowledgments,
-clarifications, failures, and startup speech use at most two words. Full results
-and the specific details of actions awaiting confirmation remain in the activity
+clarifications, failures, and startup speech use at most two words, except for the
+wake acknowledgement above. The beep is generated locally and uses no speech API.
+Full results and the specific details of actions awaiting confirmation remain in the activity
 feed. "Review action" means inspect those details before answering yes.
 
 - `brodi stop` on Windows or `./brody stop` on macOS stops the supervisor and
