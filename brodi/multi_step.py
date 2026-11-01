@@ -65,7 +65,9 @@ def limit() -> int:
 
 def deterministic_plan(text: str, apps: list[str]) -> Plan | None:
     parts = re.split(
-        r"\s+(?:and then|and|then)\s+(?=(?:open|go to|navigate to|launch|search|type|write|enter)\b)", text, flags=re.I
+        r"\s+(?:and then|and|then)\s+(?=(?:open|go to|navigate to|launch|search|type|write|enter|close|quit|minimize|maximize|restore|focus|calculate)\b)",
+        text,
+        flags=re.I,
     )
     if len(parts) < 2:
         return None

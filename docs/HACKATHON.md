@@ -33,6 +33,12 @@ handles proposals and plans. Typed results are checked before reaching local exe
 
 ## A two-minute live demo
 
+For a faster demonstration, use the [60-second ready-made command sequence](DEMO.md).
+Its 51-phrase menu includes “close Notepad,” window controls, Calculator, folders, and
+searches. The latest 32-turn live run measured 2.5–105.8 ms **after transcription**, with
+zero routing-model calls; separate native state checks verified minimize/maximize/close.
+Show these numbers as dispatch measurements, alongside the real app result.
+
 1. **Start from the tray.** Show “Listening with OpenAI.” Say “open Chrome” directly,
    establishing that the user can speak immediately after starting the app.
 2. **Show a useful task.** Say “search YouTube for ambient piano.” Show the actual results.

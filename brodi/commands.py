@@ -71,8 +71,59 @@ ALIASES.update(
         "whatsapp": "whatsapp_web",
         "slack": "slack_web",
         "spotify": "spotify_web",
+        "git hub": "github",
+        "stack overflow": "stack_overflow",
+        "hacker news": "hacker_news",
+        "chat gpt": "chatgpt",
+        "drive": "google_drive",
+        "maps": "google_maps",
+        "calendar": "google_calendar",
     }
 )
+
+WINDOWS_APPS = {
+    "chrome": "Google Chrome",
+    "google chrome": "Google Chrome",
+    "browser": "Google Chrome",
+    "notepad": "Notepad",
+    "note pad": "Notepad",
+    "edge": "Microsoft Edge",
+    "microsoft edge": "Microsoft Edge",
+    "calculator": "Calculator",
+    "calc": "Calculator",
+    "paint": "Paint",
+    "microsoft paint": "Paint",
+    "explorer": "Explorer",
+    "file explorer": "Explorer",
+    "files": "Explorer",
+    "snipping tool": "Snipping Tool",
+}
+MAC_APPS = {
+    "chrome": "Google Chrome",
+    "google chrome": "Google Chrome",
+    "browser": "Google Chrome",
+    "textedit": "TextEdit",
+    "text edit": "TextEdit",
+    "safari": "Safari",
+    "calculator": "Calculator",
+    "finder": "Finder",
+}
+FOLDERS = {name: name for name in ("desktop", "downloads", "documents", "home", "applications")}
+FOLDERS.update(
+    {
+        "download folder": "downloads",
+        "downloads folder": "downloads",
+        "desktop folder": "desktop",
+        "documents folder": "documents",
+        "home folder": "home",
+    }
+)
+
+
+def app_named(target: str, apps: list[str] | None = None) -> str | None:
+    aliases = {a.casefold(): a for a in apps or []}
+    aliases.update(WINDOWS_APPS if os_backend.is_windows() else MAC_APPS)
+    return aliases.get(re.sub(r"^(?:my|the)\s+", "", target.strip(), flags=re.I).casefold())
 
 
 def normalize(text: str) -> tuple[str, bool]:
@@ -84,7 +135,7 @@ def normalize(text: str) -> tuple[str, bool]:
     # Strip only an explicit request prefix followed by a known command verb.
     # Embedded search/message content must retain the user's literal words.
     text = re.sub(
-        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|go to|navigate to|search|look up|type|write|enter|run)\b)",
+        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|close|quit|exit|minimize|maximize|restore|focus|switch to|bring up|show|take|capture|pause|resume|skip|calculate|go to|navigate to|search|look up|type|write|enter|run)\b)",
         "",
         text,
         flags=re.I,
@@ -128,6 +179,88 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
     typing = re.fullmatch(r"(?:type|write|enter)\s+(.+?)\s+(?:into|in)\s+(.+)", clean, re.I)
     if typing:
         return Command("type_text", {"text": typing[1], "app": typing[2]})
+    # Exact reviewed actions only. Additional instructions must never disappear.
+    window = re.fullmatch(r"(close|quit|exit|minimize|maximize|restore|focus|switch to)\s+(.+)", clean, re.I)
+    if window and (app := app_named(window[2], apps)):
+        action = window[1].casefold()
+        if action in {"close", "quit", "exit"}:
+            return Command("quit_app", {"app": app})
+        if os_backend.is_windows() and app in WINDOWS_APPS.values():
+            return Command("window_control", {"app": app, "action": "focus" if action == "switch to" else action})
+        if os_backend.is_windows() and action in {"focus", "switch to"}:
+            return Command("focus_window", {"app": app})
+        if action in {"focus", "switch to"}:
+            return Command("open_app", {"app": app})
+    folder = re.fullmatch(r"(?:open|show|go to)\s+(?:(?:my|the)\s+)?(.+)", clean, re.I)
+    if folder and folder[1].casefold() in FOLDERS:
+        return Command("finder_open_folder", {"folder": FOLDERS[folder[1].casefold()]})
+    if clean.casefold() in {
+        "take a screenshot",
+        "take screenshot",
+        "screenshot",
+        "capture the screen",
+        "grab the screen",
+    }:
+        return Command("take_screenshot")
+    info = {
+        "what time is it": "time",
+        "what's the time": "time",
+        "tell me the time": "time",
+        "what is the time": "time",
+        "what's today's date": "date",
+        "what is today's date": "date",
+        "what day is it": "date",
+        "today's date": "date",
+        "battery level": "battery",
+        "check battery": "battery",
+        "how much battery is left": "battery",
+    }.get(clean.casefold())
+    if info:
+        return Command("system_info", {"kind": info})
+    media = {
+        "play pause": "play_pause",
+        "toggle playback": "play_pause",
+        "toggle music": "play_pause",
+        "next track": "next",
+        "next song": "next",
+        "skip this song": "next",
+        "skip song": "next",
+        "previous track": "previous",
+        "previous song": "previous",
+        "stop music": "stop",
+        "stop the music": "stop",
+    }.get(clean.casefold())
+    if media and os_backend.is_windows():
+        return Command("media_control", {"action": media})
+    if clean.casefold() in {
+        "volume up",
+        "turn it up",
+        "make it louder",
+        "volume down",
+        "turn it down",
+        "make it quieter",
+    }:
+        return Command(
+            "set_volume",
+            {
+                "level": "quieter"
+                if clean.casefold() in {"volume down", "turn it down", "make it quieter"}
+                else "louder"
+            },
+        )
+    calculation = re.fullmatch(r"calculate\s+(.+)", clean, re.I)
+    if calculation:
+        expression = calculation[1].lower()
+        for word, symbol in (
+            ("multiplied by", "*"),
+            ("divided by", "/"),
+            ("plus", "+"),
+            ("minus", "-"),
+            ("times", "*"),
+        ):
+            expression = re.sub(rf"\b{word}\b", symbol, expression)
+        if re.fullmatch(r"[\d.\s()+*/%\-]{1,80}", expression):
+            return Command("calculate", {"expression": expression})
     if clean.lower() in {"search", "search for", "serach"}:
         return Command("chrome_open", {"site": "google", "query": ""}, "What should I search for?", "query")
     # Keep compound tasks in the browser agent, rather than dropping the second instruction.
@@ -172,23 +305,6 @@ def parse_command(text: str, apps: list[str] | None = None) -> Command | None:
         spoken_url = re.sub(r"\s+dot\s+", ".", target, flags=re.I)
         if re.fullmatch(r"(?:https?://)?[\w-]+(?:\.[\w-]+)+(?:[/:?#]\S*)?", spoken_url):
             return Command("chrome_open", {"site": "other", "query": spoken_url})
-        app_aliases = (
-            {
-                "chrome": "Google Chrome",
-                "google chrome": "Google Chrome",
-                "notepad": "Notepad",
-                "edge": "Microsoft Edge",
-                "microsoft edge": "Microsoft Edge",
-            }
-            if os_backend.is_windows()
-            else {
-                "chrome": "Google Chrome",
-                "google chrome": "Google Chrome",
-                "textedit": "TextEdit",
-                "safari": "Safari",
-            }
-        )
-        app_aliases.update({a.lower(): a for a in apps or []})
-        if target.lower() in app_aliases:
-            return Command("open_app", {"app": app_aliases[target.lower()]})
+        if app := app_named(target, apps):
+            return Command("open_app", {"app": app})
     return None

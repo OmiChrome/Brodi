@@ -36,6 +36,10 @@ Voice recognition still uses OpenAI, including when a command takes a local shor
 | Say this | Brodi does this |
 | --- | --- |
 | “Hey bro, open Chrome.” | Opens Chrome with the configured profile. |
+| “Open Notepad.” / “Close Notepad.” | Launches Notepad or requests a normal close, preserving save prompts. |
+| “Maximize Notepad.” / “Minimize Chrome.” | Controls the named Windows window directly. |
+| “Open Calculator.” / “Open my downloads.” | Opens the app or folder without model routing. |
+| “Calculate 23 times 7.” | Answers directly: “161.” |
 | “Search YouTube for lofi beats.” | Opens the search results. |
 | “Search YouTube.” | Asks what you want to search for. |
 | “Type hello world into Notepad.” | Enters the text on Windows and checks it. |
@@ -48,6 +52,11 @@ Voice recognition still uses OpenAI, including when a command takes a local shor
 Start Brodi and wait for **“Listening with OpenAI.”** Then speak. **“Hey bro” is optional.** Say **“cancel”** to dismiss a pending question or action.
 
 App support depends on the platform, installed apps, and permissions. Windows has tray controls and native UI Automation; macOS uses AppleScript and system permissions.
+
+**Ready for a fast live demo:** [51 ready-made command examples and the stage runbook](docs/DEMO.md).
+The Windows live checks measured **2.5–105.8 ms after transcription** across 32 demo turns,
+with no routing-model calls. OpenAI recognition, speech playback, and app/page loading
+have separate latency. Run `python -m brodi.demo --catalog` to see the command menu.
 
 ## Quick start
 

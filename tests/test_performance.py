@@ -105,7 +105,7 @@ def test_predefined_plan_is_exact_and_returns_independent_arguments(text):
 def test_all_stage_tasks_rehearse_without_launching_or_network(monkeypatch):
     monkeypatch.setenv("BRODI_OS", "win32")
     result, profile = asyncio.run(run_tasks(list(TASKS), repeat=2))
-    assert result["ok"] and len(result["rows"]) == 14
+    assert result["ok"] and len(result["rows"]) == sum(len(t["commands"]) for t in TASKS.values()) * 2
     assert not any(e["stage"].startswith(("os.", "decisions")) for e in profile.events)
 
 

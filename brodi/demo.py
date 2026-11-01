@@ -49,6 +49,55 @@ TASKS = {
         "tools": ["open_app"],
         "args": [{"app": "Notepad"}],
     },
+    "calculator": {
+        "title": "Open Calculator",
+        "commands": ["Open Calculator"],
+        "tools": ["open_app"],
+        "args": [{"app": "Calculator"}],
+    },
+    "paint": {"title": "Open Paint", "commands": ["Open Paint"], "tools": ["open_app"], "args": [{"app": "Paint"}]},
+    "downloads": {
+        "title": "Open Downloads",
+        "commands": ["Open my downloads"],
+        "tools": ["finder_open_folder"],
+        "args": [{"folder": "downloads"}],
+    },
+    "calendar": {
+        "title": "Open Google Calendar",
+        "commands": ["Open Google Calendar"],
+        "tools": ["chrome_open"],
+        "args": [{"site": "google_calendar", "query": ""}],
+    },
+    "github_search": {
+        "title": "Search GitHub",
+        "commands": ["Search GitHub for voice agents"],
+        "tools": ["chrome_open"],
+        "args": [{"site": "github", "query": "voice agents"}],
+    },
+    "time": {
+        "title": "Read the time",
+        "commands": ["What time is it"],
+        "tools": ["system_info"],
+        "args": [{"kind": "time"}],
+    },
+    "date": {
+        "title": "Read today's date",
+        "commands": ["What is today's date"],
+        "tools": ["system_info"],
+        "args": [{"kind": "date"}],
+    },
+    "battery": {
+        "title": "Read battery level",
+        "commands": ["Check battery"],
+        "tools": ["system_info"],
+        "args": [{"kind": "battery"}],
+    },
+    "calculate": {
+        "title": "Calculate an answer",
+        "commands": ["Calculate 23 times 7"],
+        "tools": ["calculate"],
+        "args": [{"expression": "23 * 7"}],
+    },
 }
 
 
@@ -159,10 +208,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("task", nargs="?", choices=["all", *TASKS], default="all")
     parser.add_argument("--list", action="store_true")
+    parser.add_argument("--catalog", action="store_true", help="show ready-made Windows demo phrases")
+    parser.add_argument(
+        "--max-dispatch-ms", type=float, help="fail if any measured command exceeds this dispatch budget"
+    )
     parser.add_argument("--run", action="store_true", help="actually launch apps/tabs; default is offline rehearsal")
     parser.add_argument("--repeat", type=int, default=1, help="repeat tasks to demonstrate local shortcut memory")
     parser.add_argument("--output", type=Path, default=Path(".freebuff/profiles/demo"))
     ns = parser.parse_args()
+    if ns.catalog:
+        from .demo_catalog import QUICK_DEMOS
+
+        print(json.dumps(QUICK_DEMOS, indent=2))
+        return
+    if ns.max_dispatch_ms is not None and ns.max_dispatch_ms <= 0:
+        parser.error("--max-dispatch-ms must be positive")
     if ns.repeat < 1 or ns.repeat > 100:
         parser.error("--repeat must be between 1 and 100")
     if ns.list:
@@ -171,6 +231,10 @@ def main() -> None:
     result, profile = asyncio.run(
         run_tasks(list(TASKS) if ns.task == "all" else [ns.task], live=ns.run, repeat=ns.repeat)
     )
+    if ns.max_dispatch_ms is not None:
+        result["budget_ms"] = ns.max_dispatch_ms
+        result["budget_passed"] = all(row["dispatch_ms"] <= ns.max_dispatch_ms for row in result["rows"])
+        result["ok"] = result["ok"] and result["budget_passed"]
     save_report(ns.output, result, profile)
     print(f"Report: {ns.output / 'report.json'}")
     raise SystemExit(0 if result["ok"] else 1)

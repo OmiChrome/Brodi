@@ -9,6 +9,10 @@ from brodi.registry import Tool, ToolRegistry
 SEED = json.loads((pathlib.Path(__file__).parent.parent / "tools" / "seed.json").read_text())
 
 ALLOWED_SEED = {
+    "window_control",
+    "media_control",
+    "system_info",
+    "calculate",
     "focus_window",
     "window_state",
     "click_native_button",
@@ -199,7 +203,7 @@ def _tools():
 def test_every_cross_platform_seed_tool_has_a_windows_script():
     missing = []
     for d in SEED:
-        if d.get("scope") == "Safari" or d.get("runner") == "browser":
+        if d.get("scope") == "Safari" or d.get("runner") in {"browser", "builtin"}:
             continue
         if not d.get("script_win"):
             missing.append(d["name"])

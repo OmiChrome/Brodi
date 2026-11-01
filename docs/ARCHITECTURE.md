@@ -43,6 +43,8 @@ flowchart TD
     Decisions --> Registry
     Core --> Policy[policy.py: restrictions and confirmations]
     Policy --> OS[os_backend.py: PowerShell / AppleScript]
+    Policy --> Native[windows_desktop.py: reviewed Win32 actions]
+    Policy --> Builtin[quick_actions.py: read-only helpers]
     Policy --> UIA[windows_uia.py: isolated native controls]
     Policy --> Browser[browser_task.py: Chrome CDP loop]
     Policy --> Learn[generator.py: propose and validate tool]
@@ -61,17 +63,21 @@ Paths in this table are relative to the repository root.
 
 | Path | Responsibility |
 | --- | --- |
-| [`agent.py`](../agent.py) | Default local wake console; optional legacy LiveKit voice session and worker entrypoints. |
+| [`agent.py`](../agent.py) | OpenAI streaming voice session and LiveKit console/worker entrypoints. |
 | [`brodi/__init__.py`](../brodi/__init__.py) | Lazy public export of `DynamicMacAgent`; avoids importing runtime defaults before configuration. |
 | [`brodi/config.py`](../brodi/config.py) | Load env files then optional YAML, preserve existing environment, parse boolean flags. |
 | [`brodi/models.py`](../brodi/models.py) | Luna defaults and stable system/schema prompt-cache keys. |
 | [`brodi/paths.py`](../brodi/paths.py) | Platform user-data locations and optional override. |
-| [`brodi/wake.py`](../brodi/wake.py) | Offline listener, wake/hotkey lifecycle, capture window, counters, and model installer. |
+| [`brodi/wake.py`](../brodi/wake.py) | Text-only optional wake-prefix controller and test counters; no local speech model. |
 | [`brodi/voice.py`](../brodi/voice.py) | Legacy LiveKit transcript `VoiceGate` and activation window. |
 | [`brodi/memory.py`](../brodi/memory.py) | Versioned SQLite facts and tool-only shortcuts, retention, matching, confirmed deletion/overwrite. |
 | [`brodi/multi_step.py`](../brodi/multi_step.py) | Typed plans, strict planner schema, attempt/deadline limits, retry/recovery, lightweight observation. |
 | [`brodi/windows_uia.py`](../brodi/windows_uia.py) | Isolated, bounded pywinauto UIA input, focus, window state, buttons, target policy and readback. |
 | [`brodi/native_launch.py`](../brodi/native_launch.py) | Trusted Windows seed launches without a PowerShell startup; unsupported targets retain script execution. |
+| [`brodi/windows_desktop.py`](../brodi/windows_desktop.py) | Reviewed Win32 window selection/control, graceful close, known folders, media keys, and screenshots. |
+| [`brodi/quick_actions.py`](../brodi/quick_actions.py) | Portable time/date/battery answers and bounded arithmetic without evaluation of Python code. |
+| [`brodi/demo_catalog.py`](../brodi/demo_catalog.py) | 51 ready-to-say demo phrases, checked against the real registry in tests. |
+| [`brodi/desktop_smoke.py`](../brodi/desktop_smoke.py) | Opt-in real Notepad state/close verification with a 500 ms dispatch budget. |
 | [`brodi/smoke.py`](../brodi/smoke.py) | Explicit live Notepad/Chrome probes, offline WAV replay, and dispatch timing. |
 | [`brodi/activity.py`](../brodi/activity.py) | Local structured activity journal and live human-readable terminal viewer. |
 | [`brodi/tray.py`](../brodi/tray.py) | Windows tray UI, checkout-scoped start/stop/restart controls, live activity status, and single-instance guard; see [TRAY.md](TRAY.md). |

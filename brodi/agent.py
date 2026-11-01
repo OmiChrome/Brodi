@@ -898,7 +898,7 @@ class DynamicMacAgent:
     async def _execute(
         self, tool: Tool, args: dict[str, str], outcome: Outcome, prefix: str = "", utterance: str = ""
     ) -> None:
-        if tool.name in {"open_app", "quit_app", "type_text"}:
+        if tool.name in {"open_app", "quit_app", "type_text", "window_control"}:
             app = args.get("app", "").strip().casefold().removesuffix(".exe")
             if app in policy.BLOCKED_APPS | policy.WINDOWS_BLOCKED_APPS:
                 outcome.speak = "That application is blocked by the safety policy."
@@ -984,16 +984,26 @@ class DynamicMacAgent:
         t0 = time.perf_counter()
         result = None
         fast_launch = False
+        if tool.runner in {"builtin", "windows_fast"} and tool.source != "seed":
+            outcome.speak = "That native action is not in the reviewed tool catalog."
+            return
+        if tool.runner == "builtin":
+            from .quick_actions import run
+
+            result = run(tool.name, args)
         if (
             os_backend.is_windows()
             and tool.source == "seed"
-            and tool.name in {"open_app", "chrome_open"}
-            and flag("BRODI_FAST_LAUNCH")
+            and tool.runner != "builtin"
+            and (flag("BRODI_FAST_LAUNCH") or tool.runner == "windows_fast")
         ):
             from .native_launch import execute
 
             result = await execute(tool.name, args)
             fast_launch = result is not None
+        if tool.runner == "windows_fast" and result is None:
+            outcome.speak = "That native action is unavailable on this platform."
+            return
         if result is None:
             result = (
                 await run_applescript(script, timeout=self._script_timeout)
@@ -1026,7 +1036,7 @@ class DynamicMacAgent:
                 "site": BROWSER_OPENERS[tool.name](args),
                 "finished_at": time.time(),
             }
-        if fast_launch:
+        if fast_launch and tool.speak == "done":
             outcome.speak = "Got it."
         elif tool.speak == "done":
             outcome.speak = f"{prefix}Done." if prefix else "Done."
@@ -1066,6 +1076,9 @@ def _activity_action(tool: Tool, args: dict[str, str]) -> str:
         return "Opening " + args.get("app", "the app")
     if tool.name == "quit_app":
         return "Closing " + args.get("app", "the app")
+    if tool.name == "window_control":
+        verb = {"minimize": "Minimizing", "maximize": "Maximizing", "restore": "Restoring", "focus": "Focusing"}
+        return verb.get(args.get("action"), "Controlling") + " " + args.get("app", "the app")
     if tool.name == "chrome_open":
         site = args.get("site", "other")
         name = {"youtube": "YouTube", "google_keep": "Google Keep", "gmail": "Gmail", "github": "GitHub"}.get(

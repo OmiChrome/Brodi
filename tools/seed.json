@@ -52,7 +52,7 @@
   },
   {
     "name": "quit_app",
-    "description": "Quit a running application.",
+    "description": "Ask a running application to close normally, preserving its save prompts.",
     "scope": null,
     "args": [
       {
@@ -62,14 +62,14 @@
         "dynamic": "running_apps"
       }
     ],
-    "script": "tell application \"{{app}}\" to quit\nreturn \"{{app}} closed\"",
-    "speak": "result",
+    "script": "tell application \"{{app}}\" to quit\nreturn \"Close requested for {{app}}\"",
+    "speak": "On it.",
     "examples": [
       "quit Slack",
       "close Spotify",
       "exit Safari"
     ],
-    "script_win": "$app = \"{{app}}\"; $names = @(($app -replace '\\s', ''), ($app -split '\\s+')[-1]); $procs = Get-Process | Where-Object { $names -contains $_.ProcessName }; if (-not $procs) { Write-Error \"$app is not running.\"; exit 1 }; $procs | Stop-Process; \"$app closed\""
+    "script_win": "$app = \"{{app}}\"; $names = @(($app -replace '\\s', ''), ($app -split '\\s+')[-1]); $procs = @(Get-Process | Where-Object { $names -contains $_.ProcessName -and $_.MainWindowHandle -ne 0 }); if ($procs.Count -ne 1) { throw \"Select one app window before closing it.\" }; if (-not $procs[0].CloseMainWindow()) { throw \"The app did not accept the close request.\" }; \"Close requested. Save any unsaved work if prompted.\""
   },
   {
     "name": "hide_others",
@@ -116,7 +116,7 @@
   },
   {
     "name": "take_screenshot",
-    "description": "Capture the whole screen to a timestamped PNG on the Desktop.",
+    "description": "Capture the whole screen to a new PNG on the Desktop.",
     "scope": null,
     "script": "set ts to do shell script \"date +%Y-%m-%d_%H.%M.%S\"\nset p to (POSIX path of (path to desktop)) & \"Screenshot_\" & ts & \".png\"\ndo shell script \"screencapture -x \" & quoted form of p\nreturn \"saved to Desktop\"",
     "speak": "result",
@@ -124,7 +124,7 @@
       "take a screenshot",
       "grab the screen"
     ],
-    "script_win": "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height; $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size); $p = Join-Path ([Environment]::GetFolderPath('Desktop')) (\"Screenshot_\" + (Get-Date -Format 'yyyy-MM-dd_HH.mm.ss') + \".png\"); $bmp.Save($p); \"saved to Desktop\""
+    "script_win": "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height; $g = [System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size); $p = Join-Path ([Environment]::GetFolderPath('Desktop')) (\"Screenshot_\" + [guid]::NewGuid().ToString('N') + \".png\"); try { $bmp.Save($p) } finally { $g.Dispose(); $bmp.Dispose() }; \"saved to Desktop\""
   },
   {
     "name": "lock_screen",
@@ -675,5 +675,114 @@
     "script": "",
     "script_win": "'Native window control via UI Automation'",
     "speak": "done"
+  },
+  {
+    "name": "window_control",
+    "description": "Minimize, maximize, restore, or focus one named Windows app window.",
+    "runner": "windows_fast",
+    "script": "",
+    "script_win": "'Reviewed native window action'",
+    "speak": "done",
+    "args": [
+      {
+        "name": "app",
+        "kind": "enum",
+        "instructions": "The requested app.",
+        "criteria": {
+          "Notepad": null,
+          "Google Chrome": null,
+          "Microsoft Edge": null,
+          "Calculator": null,
+          "Paint": null,
+          "Explorer": null,
+          "Snipping Tool": null
+        }
+      },
+      {
+        "name": "action",
+        "kind": "enum",
+        "instructions": "The requested action.",
+        "criteria": {
+          "minimize": null,
+          "maximize": null,
+          "restore": null,
+          "focus": null
+        }
+      }
+    ],
+    "examples": [
+      "minimize Notepad",
+      "maximize Chrome",
+      "restore Notepad",
+      "switch to Paint"
+    ]
+  },
+  {
+    "name": "media_control",
+    "description": "Send the system media key: toggle play/pause, next, previous, or stop. A media app must be playing or available.",
+    "runner": "windows_fast",
+    "script": "",
+    "script_win": "'Reviewed native media key'",
+    "speak": "done",
+    "args": [
+      {
+        "name": "action",
+        "kind": "enum",
+        "instructions": "The requested action.",
+        "criteria": {
+          "play_pause": null,
+          "next": null,
+          "previous": null,
+          "stop": null
+        }
+      }
+    ],
+    "examples": [
+      "toggle playback",
+      "next song",
+      "previous song",
+      "stop music"
+    ]
+  },
+  {
+    "name": "system_info",
+    "description": "Read the current local time, date, or battery level without a model call.",
+    "runner": "builtin",
+    "script": "",
+    "speak": "result",
+    "args": [
+      {
+        "name": "kind",
+        "kind": "enum",
+        "instructions": "The requested kind.",
+        "criteria": {
+          "time": null,
+          "date": null,
+          "battery": null
+        }
+      }
+    ],
+    "examples": [
+      "what time is it",
+      "what is today's date",
+      "check battery"
+    ]
+  },
+  {
+    "name": "calculate",
+    "description": "Calculate a short numeric arithmetic expression with +, -, *, /, %, and parentheses.",
+    "runner": "builtin",
+    "script": "",
+    "speak": "result",
+    "args": [
+      {
+        "name": "expression",
+        "kind": "text",
+        "instructions": "The requested expression."
+      }
+    ],
+    "examples": [
+      "calculate 23 times 7"
+    ]
   }
 ]

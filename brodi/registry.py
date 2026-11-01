@@ -122,7 +122,9 @@ class Tool:
         return bool(self.blocked_by)
 
     def is_available(self, ctx: MacContext) -> bool:
-        if self.runner == "windows_uia" and not os_backend.is_windows():
+        if self.runner in {"windows_uia", "windows_fast"} and not os_backend.is_windows():
+            return False
+        if self.runner in {"windows_fast", "builtin"} and self.source != "seed":
             return False
         if self.blocked:
             return False

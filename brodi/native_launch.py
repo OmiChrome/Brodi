@@ -23,6 +23,17 @@ def launch(tool: str, args: dict[str, str]) -> ScriptResult | None:
             command = chrome.launch_chrome_command(chrome.HOME_URL, chrome.profile_dir(), platform="win32")
         elif label == "Notepad":
             command = [shutil.which("notepad.exe") or "notepad.exe"]
+        elif label in {"Calculator", "Paint", "Explorer", "Snipping Tool"}:
+            root = Path(os.environ.get("WINDIR", r"C:\Windows"))
+            executable = {
+                "Calculator": root / "System32/calc.exe",
+                "Paint": root / "System32/mspaint.exe",
+                "Explorer": root / "explorer.exe",
+                "Snipping Tool": root / "System32/SnippingTool.exe",
+            }[label]
+            if not executable.is_file():
+                return ScriptResult(False, "", f"{label} is not installed here")
+            command = [str(executable)]
         elif label == "Microsoft Edge":
             candidates = [
                 Path(os.environ.get(root, "")) / "Microsoft/Edge/Application/msedge.exe"
@@ -31,6 +42,10 @@ def launch(tool: str, args: dict[str, str]) -> ScriptResult | None:
             executable = next((str(p) for p in candidates if p.is_file()), shutil.which("msedge.exe"))
             if executable:
                 command = [executable]
+    if tool not in {"open_app", "chrome_open"}:
+        from .windows_desktop import run
+
+        return run(tool, args)
     if command is None:
         return None  # Unsupported names retain the existing PowerShell implementation.
     try:

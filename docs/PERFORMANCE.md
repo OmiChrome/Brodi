@@ -1,5 +1,20 @@
 # Profiling and presentation tasks
 
+## Ready-made desktop tools
+
+The current Windows catalog includes direct app launch/close, window controls,
+known folders, media keys, screenshots, and read-only helpers. **32 live presentation
+turns measured 2.5–105.8 ms after transcription**, with zero routing-model calls.
+A separate Notepad smoke verified 15 window-state changes in 6.1–40.0 ms dispatch
+and a normal close in 9.7 ms. See [DEMO.md](DEMO.md) for the 51-phrase menu,
+measurement boundaries, and reproducible commands. The CLI's `--max-dispatch-ms 500`
+turns the target into a failing check; the PowerShell demo defaults to this budget.
+
+`brodi/windows_desktop.py` uses typed Win32 calls for reviewed actions instead of
+starting PowerShell or a UIA helper process. Normal app close preserves save dialogs
+and refuses ambiguous targets. `brodi/quick_actions.py` answers time/date/battery
+and bounded arithmetic directly. Text entry and arbitrary tasks retain their existing paths.
+
 ## Current cloud transcription
 
 The current console uses `gpt-live-transcribe` through the persistent Realtime
@@ -95,8 +110,8 @@ From the project directory on Windows:
 # Rehearse without opening apps, recording audio, or using paid APIs.
 .\scripts\demo.ps1
 
-# Run all six scenarios, twice, and show shortcut memory on the second pass.
-# Opens Notepad, Chrome, GitHub and YouTube search pages.
+# Run all 15 scenarios, twice, and show eligible shortcut memory on the second pass.
+# Opens demo apps, folders, and browser pages; also answers quick questions.
 .\scripts\demo.ps1 -Run -Repeat 2
 
 # Or present one scenario at a time.
@@ -124,7 +139,7 @@ With the normal assistant running, say **“Hey bro, run presentation workspace�
 These named tasks are available before any training or saved shortcut, and use the
 same tool validation, policy, timeouts and confirmation machinery as other plans.
 `BRODI_ENABLE_MULTI_STEP` must be enabled (the default). Definitions live in
-`brodi/automations.py`; the six scripted presentation scenarios live in `brodi/demo.py`.
+`brodi/automations.py`; the 15 scripted presentation scenarios live in `brodi/demo.py`.
 Chrome and Notepad must be installed for the full Windows presentation. The workspace,
 research and reference automations use cross-platform browser tools.
 

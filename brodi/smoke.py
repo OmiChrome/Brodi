@@ -102,6 +102,11 @@ def main() -> None:
     )
     parser.add_argument("--notepad", action="store_true", help="type and read back hello world in a new test document")
     parser.add_argument(
+        "--desktop",
+        action="store_true",
+        help="verify minimize/maximize/restore/focus/close on a separate empty Notepad window; 500 ms dispatch budget",
+    )
+    parser.add_argument(
         "--cloud-stt",
         type=Path,
         help="send a PCM16 mono 24 kHz WAV through the real cloud STT adapter; no microphone or actions",
@@ -112,11 +117,17 @@ def main() -> None:
         output.update(asyncio.run(latency()))
     if args.notepad:
         output.update(notepad())
+    if args.desktop:
+        from .desktop_smoke import run
+
+        output["desktop"] = asyncio.run(run())
     if args.cloud_stt:
         output.update(asyncio.run(cloud_stt(args.cloud_stt)))
     if not output:
         parser.error("Choose a smoke test")
     print(json.dumps(output, ensure_ascii=False, indent=2))
+    if args.desktop and not output["desktop"]["ok"]:
+        raise SystemExit(1)
 
 
 async def cloud_stt(path: Path) -> dict:

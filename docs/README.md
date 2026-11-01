@@ -6,11 +6,12 @@ personality is a capable bro who gets things done and speaks very little.
 | Document | Read it for |
 | --- | --- |
 | [HACKATHON.md](HACKATHON.md) | Pitch, judge demo, impactful differentiators, and evidence. |
+| [DEMO.md](DEMO.md) | 51 ready-made phrases, a 60-second demo, native window controls, and measured dispatch under 500 ms. |
 | [PERSONAS.md](PERSONAS.md) | Personality, speech rules, response examples, and voice acceptance criteria. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Current modules, execution flows, tools, state, configuration, and testing. |
 | [ACTIVITY.md](ACTIVITY.md) | Live startup/status view, accepted inputs, gathered outputs, storage, and debugging. |
 | [TRAY.md](TRAY.md) | Official artwork, Windows tray controls, process lifecycle, configuration, and tests. |
-| [IMPLEMENTATION.md](IMPLEMENTATION.md) | Offline wake, UIA, SQLite memory, bounded plans, configuration, smoke tests, and measured limits. |
+| [IMPLEMENTATION.md](IMPLEMENTATION.md) | UIA, SQLite memory, bounded plans, configuration, smoke tests, and historical implementation evidence. |
 | [PERFORMANCE.md](PERFORMANCE.md) | Profiler, measured bottlenecks, fixes, and ready-to-run presentation automations. |
 | [Project README](../README.md) | Installation, startup commands, and a quick introduction. |
 | [Configuration example](../.env.example) | Environment settings to copy into a local configuration file. |
