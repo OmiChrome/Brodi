@@ -2,7 +2,7 @@
 # Usage: brodi start        (brodi.cmd on PATH calls this)
 #        .\console.ps1 start
 param(
-    [ValidateSet("start", "stop", "status", "log", "restart", "doctor", "debug")][string]$Action = "start",
+    [ValidateSet("start", "stop", "status", "log", "restart", "doctor", "debug", "tray")][string]$Action = "start",
     [switch]$Once,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArguments
 )
@@ -60,9 +60,20 @@ function Stop-Brodi {
     "stopped (pid $($running.ProcessId -join ', '))"
 }
 
+function Start-Tray([switch]$Manual) {
+    $trayArguments = @('-m', 'brodi.tray')
+    if ($Manual) { $trayArguments += '--force' }
+    $trayPython = Join-Path $PSScriptRoot '.venv\Scripts\pythonw.exe'
+    if (Test-Path -LiteralPath $trayPython) {
+        Start-Process -FilePath $trayPython -ArgumentList $trayArguments -WorkingDirectory $PSScriptRoot -WindowStyle Hidden | Out-Null
+    } else {
+        Start-Process -FilePath 'uv' -ArgumentList (@('run', 'python') + $trayArguments) -WorkingDirectory $PSScriptRoot -WindowStyle Hidden | Out-Null
+    }
+}
+
 function Start-Brodi {
     $running = Get-BrodiProcess
-    if ($running) { Show-Activity; return }
+    if ($running) { Start-Tray; Show-Activity; return }
     Write-Host 'Starting Brodi...' -ForegroundColor Cyan
 
     Import-DotEnv (Join-Path $PSScriptRoot ".env.local")
@@ -91,6 +102,7 @@ function Start-Brodi {
         exit 1
     }
     Write-Host 'Brodi started. Waiting for the voice session...' -ForegroundColor Green
+    Start-Tray
     Show-Activity
 }
 
@@ -100,6 +112,7 @@ switch ($Action) {
         exit $LASTEXITCODE
     }
     "start" { Start-Brodi }
+    "tray" { Start-Tray -Manual }
     "stop" { Stop-Brodi }
     "restart" { Stop-Brodi; Start-Brodi }
     "status" { Show-Activity }

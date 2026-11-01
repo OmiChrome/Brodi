@@ -1,4 +1,9 @@
-# Brodi — Voice-Controlled AI Computer Assistant
+<p align="center">
+  <img src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped together in a warm painterly illustration" width="240" />
+</p>
+
+<h1 align="center">Brodi</h1>
+<p align="center"><strong>Your bro for getting things done.</strong><br />Voice-controlled desktop assistant for Windows 11 and macOS.</p>
 
 A hands-free AI assistant that lets you control your computer and browser using natural voice
 commands. Powered by OpenAI GPT-Live and Decisions API to understand your intent, choose the
@@ -115,6 +120,7 @@ lower-priority settings; copy [config.example.yaml](config.example.yaml).
 
 ```bat
 brodi start        :: start the assistant and stream readable activity
+brodi tray         :: open Windows tray controls without starting voice
 brodi status       :: stream current activity, accepted input, and output
 brodi status --once :: print a snapshot and exit
 brodi start --once  :: start in the background and print a snapshot
@@ -124,6 +130,18 @@ brodi stop
 brodi restart
 brodi doctor       :: check setup without recording audio or calling a model
 ```
+
+### Windows tray controls
+
+`brodi start` automatically opens the branded Brodi icon in the Windows system tray.
+Right-click it for **Start assistant**, **Stop assistant**, **Restart assistant**,
+**Show activity**, **Open log**, and **Quit Brodi**. Double-click the icon to show
+activity. If Windows hides it, look in the tray's overflow menu.
+
+**Stop assistant** leaves the tray available so you can start listening again.
+**Quit Brodi** stops both the assistant and tray; apps Brodi opened stay open.
+Run `brodi tray` to open the controls without starting voice. Set `BRODI_TRAY=false`
+in `.env.local` to disable automatic tray startup (`true` is the default).
 
 The live activity view shows **YOU**, **DOING**, **GATHERED**, **BRODI**, **RESULT**, and
 **STATE** rows: what Brodi heard, what it is doing, information returned by tools/pages,

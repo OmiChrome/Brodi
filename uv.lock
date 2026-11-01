@@ -211,9 +211,11 @@ source = { virtual = "." }
 dependencies = [
     { name = "livekit-agents", extra = ["openai"] },
     { name = "openai" },
+    { name = "pillow", marker = "sys_platform == 'win32'" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pynput" },
+    { name = "pystray", marker = "sys_platform == 'win32'" },
     { name = "python-dotenv" },
     { name = "pywinauto", marker = "sys_platform == 'win32'" },
     { name = "pyyaml" },
@@ -234,9 +236,11 @@ dev = [
 requires-dist = [
     { name = "livekit-agents", extras = ["openai"], specifier = "~=1.8" },
     { name = "openai", specifier = ">=3.26.0" },
+    { name = "pillow", marker = "sys_platform == 'win32'", specifier = ">=11.0" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pynput", specifier = ">=1.7.7" },
+    { name = "pystray", marker = "sys_platform == 'win32'", specifier = ">=0.19.5" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "pywinauto", marker = "sys_platform == 'win32'", specifier = ">=0.6.8" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1894,6 +1898,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/37/fa19d41d083ef2a9c763234d6338c2213ea297ffb58377f566707cca60d5/pyobjc_framework_quartz-13.0-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:fdba4c5d095e2f88812d0584fdb4b35dc31f38d93145830cc955f42710f1f8ec", size = 221335, upload-time = "2026-10-30T10:42:38.825Z" },
     { url = "https://files.pythonhosted.org/packages/c5/fa/11c471eb99c3a572343e86a4201e789f4076a8011f7b2c0261d9767e7149/pyobjc_framework_quartz-13.0-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:d76914284e721b96e2a7850da81343cd4af083a00d07afd87545be432d1e2e24", size = 216492, upload-time = "2026-10-30T10:42:39.935Z" },
     { url = "https://files.pythonhosted.org/packages/ae/62/cd1fc4fd3a95f7a09744ab25b315dd8c3ff0b69a18ce997a0af7ec28f1f2/pyobjc_framework_quartz-13.0-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:ab6f410ac494b63ed48294392650b88ce8229511a0eb0059458982daeeacc6f7", size = 221391, upload-time = "2026-10-30T10:42:41.015Z" },
+]
+
+[[package]]
+name = "pystray"
+version = "0.19.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow" },
+    { name = "pyobjc-framework-quartz", marker = "python_version < '0'" },
+    { name = "python-xlib", marker = "python_version < '0'" },
+    { name = "six" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/64/927a4b9024196a4799eba0180e0ca31568426f258a4a5c90f87a97f51d28/pystray-0.19.5-py2.py3-none-any.whl", hash = "sha256:a0c2229d02cf87207297c22d86ffc57c86c227517b038c0d3c59df79295ac617", size = 49068, upload-time = "2023-09-17T13:44:26.872Z" },
 ]
 
 [[package]]

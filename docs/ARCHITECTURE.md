@@ -72,6 +72,8 @@ Paths in this table are relative to the repository root.
 | [`brodi/native_launch.py`](../brodi/native_launch.py) | Trusted Windows seed launches without a PowerShell startup; unsupported targets retain script execution. |
 | [`brodi/smoke.py`](../brodi/smoke.py) | Explicit live Notepad/Chrome probes, offline WAV replay, and dispatch timing. |
 | [`brodi/activity.py`](../brodi/activity.py) | Local structured activity journal and live human-readable terminal viewer. |
+| [`brodi/tray.py`](../brodi/tray.py) | Windows tray UI, checkout-scoped start/stop/restart controls, live activity status, and single-instance guard; see [TRAY.md](TRAY.md). |
+| [`assets/branding/`](../assets/branding/) | Official logo PNG and multi-resolution Windows ICO. |
 | [`brodi/commands.py`](../brodi/commands.py) | Wake-prefix normalization, common command parsing, site aliases, homepage/search URL construction. |
 | [`brodi/agent.py`](../brodi/agent.py) | Core state machine, execution gates, clarifications, task memory, browser verification, learning orchestration. |
 | [`brodi/router.py`](../brodi/router.py) | Direct route when recognized; otherwise batched intent/enum decisions and a separate text-span selection pass. |
@@ -423,6 +425,7 @@ or pricing. The example file is the starting point for local configuration.
 | `BRODI_AGENT_NAME` | `brodi` LiveKit agent name. |
 | `BRODI_LOG` | Optional launcher log path override. |
 | `BRODI_ACTIVITY_LOG` | Optional readable journal path; defaults to `.freebuff/activity.jsonl`. |
+| `BRODI_TRAY` | `true`; Windows launcher opens tray controls. Explicit `brodi tray` overrides automatic opt-out. |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Worker/cloud configuration, not required for local console mode. |
 | `BRODI_CHROME_TESTS` | `1` opts into the real Chrome test module. |
 
