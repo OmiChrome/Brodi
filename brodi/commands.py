@@ -135,6 +135,10 @@ def normalize(text: str) -> tuple[str, bool]:
     if match:
         text = text[match.end() :].strip()
     text = re.sub(r"^please\s+|[, ]+please[.!?]*$", "", text, flags=re.I)
+    # A wake-only request is a greeting, not a task for the routing model.
+    # Match the entire remainder so dictated text and extra instructions survive.
+    if match and re.fullmatch(r"wake up[.!?]*", text, re.I):
+        text = ""
     # Strip only an explicit request prefix followed by a known command verb.
     # Embedded search/message content must retain the user's literal words.
     text = re.sub(

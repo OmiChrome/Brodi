@@ -36,12 +36,58 @@ def assistant(monkeypatch, tmp_path):
     return agent, scripts
 
 
-@pytest.mark.parametrize("text", ["Hey bro", "Yo bro!", "hey, bro.", "Brodi", "Hey Brody", " hi bro "])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hey bro",
+        "Yo bro!",
+        "hey, bro.",
+        "Brodi",
+        "Hey Brodi",
+        "Hey Brody",
+        " hi bro ",
+        "hey bro wake up",
+        "Hey, bro, wake up!",
+        "Hey Brodi, please wake up.",
+        "Yo bro, wake up please!",
+    ],
+)
 def test_wake_only_acknowledges_without_api_or_action(assistant, text):
     agent, scripts = assistant
     result = asyncio.run(agent.handle(text))
     assert result.speak == "Hey bro, I'm listening."
     assert not result.executed and not result.handoff_to_llm and scripts == []
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Hey bro, search YouTube for wake up", "search YouTube for wake up"),
+        ("Hey bro, type wake up into Notepad", "type wake up into Notepad"),
+        ("Hey bro, wake up and open Chrome", "wake up and open Chrome"),
+        ("wake up", "wake up"),
+    ],
+)
+def test_wake_up_only_strips_a_complete_wake_request(text, expected):
+    assert commands.normalize(text)[0] == expected
+
+
+def test_wake_up_preserves_pending_search_question(assistant):
+    agent, scripts = assistant
+
+    async def conversation():
+        await agent.handle("search YouTube")
+        pending = agent.pending_question
+        assert pending is not None
+        result = await agent.handle("Hey bro, wake up")
+        assert result.speak == "Hey bro, I'm listening."
+        assert agent.pending_question is pending
+        assert scripts == []
+        answer = await agent.handle("lofi beats")
+        assert answer.executed
+
+    asyncio.run(conversation())
+    assert "search_query=lofi+beats" in scripts[0]
 
 
 @pytest.mark.parametrize(

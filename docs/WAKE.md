@@ -16,9 +16,9 @@ chmod +x brody
 ```
 
 Close the terminal and say **"Hey bro, open GitHub."** The full request is handled
-by the normal tool router. Say **"Hey bro"** on its own to open a 20-second
-command window. Follow-up commands and answers work in that window; after
-it expires, say the wake phrase again. Pending confirmations keep their existing
+by the normal tool router. Say **"Hey bro"** or **"Hey bro, wake up"** to hear
+**"Listening"** and open a 20-second command window. Follow-up commands and answers
+work in that window; after it expires, say the wake phrase again. Pending confirmations keep their existing
 timeout and policy checks.
 
 No app window needs to be open. A background supervisor and cloud voice process

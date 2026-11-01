@@ -9,7 +9,9 @@ def test_background_speech_cannot_activate_assistant(text):
     assert not VoiceGate().accepts(text)
 
 
-@pytest.mark.parametrize("text", ["Hey bro", "Yo bro", "Hey bro, open Chrome", "Hey Brodi, open Notepad"])
+@pytest.mark.parametrize(
+    "text", ["Hey bro", "Hey bro wake up", "Yo bro", "Hey bro, open Chrome", "Hey Brodi, open Notepad"]
+)
 def test_wake_phrase_activates(text):
     gate = VoiceGate()
     assert gate.accepts(text)
