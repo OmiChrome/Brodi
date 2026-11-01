@@ -22,12 +22,14 @@ import json
 import re
 import threading
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
 from . import chrome, commands, os_backend, policy
 from .applescript import MacContext
 from .os_backend import escape_applescript_string, escape_powershell_string
+from .profiler import profiled
 
 TOOLS_DIR = Path(__file__).resolve().parent.parent / "tools"
 SEED_PATH = TOOLS_DIR / "seed.json"
@@ -49,6 +51,13 @@ RISKY_PATTERNS = re.compile(
     r"Remove-Item|Clear-RecycleBin|Stop-Computer|Restart-Computer|Set-ExecutionPolicy)",
     re.IGNORECASE,
 )
+
+
+@lru_cache(maxsize=512)
+def _template_violations(script: str, scope: str | None, enabled: bool) -> tuple[str, ...]:
+    # Keyed by the rendered template and policy mode: editing a tool or switching
+    # platforms invalidates the entry. Execution still checks actual arguments.
+    return tuple(str(v) for v in policy.check(script, scope))
 
 
 @dataclass
@@ -106,7 +115,7 @@ class Tool:
     def blocked_by(self) -> list[str]:
         """Policy violations for this tool's template (arguments filled with placeholders)."""
         rendered = self.render({a.name: (a.default or "x") for a in self.args})
-        return [str(v) for v in policy.check(rendered, self.active_scope)]
+        return list(_template_violations(rendered, self.active_scope, policy.ENABLED))
 
     @property
     def blocked(self) -> bool:
@@ -129,8 +138,9 @@ class Tool:
         for spec in self.args:
             value = args.get(spec.name, spec.default or "")
             script = script.replace("{{" + spec.name + "}}", escape(value))
-        for name, value in chrome.system_vars().items():  # built-ins: {{chrome_profile}}, {{chrome_home}}
-            script = script.replace("{{" + name + "}}", escape(value))
+        if "{{chrome_profile}}" in script or "{{chrome_home}}" in script:
+            for name, value in chrome.system_vars().items():
+                script = script.replace("{{" + name + "}}", escape(value))
         for name in self.computed:  # filled by the agent via resolvers before execution
             if name in args:
                 script = script.replace("{{" + name + "}}", escape(args[name]))
@@ -209,6 +219,7 @@ class ToolRegistry:
                 tools[tool.name] = tool
         self.tools = tools
 
+    @profiled("catalog")
     def available(self, ctx: MacContext) -> list[Tool]:
         return [t for t in self.tools.values() if t.is_available(ctx)]
 

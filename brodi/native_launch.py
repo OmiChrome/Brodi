@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import chrome, commands
 from .os_backend import ScriptResult
+from .profiler import profiled
 
 
 def launch(tool: str, args: dict[str, str]) -> ScriptResult | None:
@@ -41,5 +42,6 @@ def launch(tool: str, args: dict[str, str]) -> ScriptResult | None:
         return ScriptResult(False, "", str(exc))
 
 
+@profiled("os.native_launch")
 async def execute(tool: str, args: dict[str, str]) -> ScriptResult | None:
     return await asyncio.to_thread(launch, tool, args)

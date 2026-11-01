@@ -27,6 +27,9 @@ load_environment()
 from brodi import policy  # noqa: E402
 from brodi.activity import ActivityLog  # noqa: E402
 from brodi.agent import PENDING_TTL_S, DynamicMacAgent  # noqa: E402
+from brodi.speech import SpeechSettings, speech_speed  # noqa: E402
+from brodi.transcription import DEFAULT_MODEL as DEFAULT_STT_MODEL  # noqa: E402
+from brodi.transcription import create_stt  # noqa: E402
 from brodi.voice import VoiceGate  # noqa: E402
 
 log = logging.getLogger("brodi.voice")
@@ -37,10 +40,11 @@ anything that reaches you is small talk or a quick question. Answer in one short
 No markdown, no lists, no emoji, no follow-up questions."""
 
 VOICE_MODE = os.environ.get("BRODI_VOICE_MODE", "pipeline")  # "pipeline" | "realtime"
-STT_MODEL = os.environ.get("BRODI_STT_MODEL", "gpt-4o-mini-transcribe-2025-12-15")
+STT_MODEL = os.environ.get("BRODI_STT_MODEL", DEFAULT_STT_MODEL)
 TTS_MODEL = os.environ.get("BRODI_TTS_MODEL", "gpt-4o-mini-tts")
 CHAT_MODEL = os.environ.get("BRODI_CHAT_MODEL", "gpt-6-luna")
 REALTIME_MODEL = os.environ.get("BRODI_REALTIME_MODEL", "gpt-realtime-2.1-mini")
+REALTIME_STT_MODEL = os.environ.get("BRODI_REALTIME_STT_MODEL", "gpt-transcribe")
 VOICE = os.environ.get("BRODI_VOICE", "onyx")  # deep male voice
 LANGUAGE = os.environ.get("BRODI_LANG", "en")
 
@@ -51,7 +55,7 @@ class BrodiAgent(Agent):
         self.mac = mac
         self.awaiting_chat_reply = False
         self.activation = VoiceGate(
-            required=flag("BRODI_WAKE_REQUIRED"),
+            required=flag("BRODI_WAKE_REQUIRED", default=False),
             window_s=float(os.environ.get("BRODI_WAKE_WINDOW_S", "20")),
         )
 
@@ -106,22 +110,28 @@ def build_session() -> AgentSession:
             llm=lk_openai.realtime.RealtimeModel(
                 model=REALTIME_MODEL,
                 voice=VOICE,
+                speed=speech_speed(),
                 turn_detection=SemanticVad(type="semantic_vad", create_response=False, interrupt_response=False),
-                input_audio_transcription=AudioTranscription(model=STT_MODEL),
+                input_audio_transcription=AudioTranscription(model=REALTIME_STT_MODEL),
             ),
             turn_handling={"turn_detection": "realtime_llm", "preemptive_generation": {"enabled": False}},
             vad=None,
         )
     return AgentSession(
-        # Short desktop commands need local endpointing, not a cloud turn-detector dependency.
         turn_handling={
-            "turn_detection": "vad",
-            "interruption": {"mode": "vad"},
+            "turn_detection": "stt",
+            "interruption": {"enabled": False},
             "preemptive_generation": {"enabled": False},
         },
-        stt=lk_openai.STT(model=STT_MODEL, language=LANGUAGE),
+        stt=create_stt(model=STT_MODEL, language=LANGUAGE),
+        vad=None,
         llm=lk_openai.LLM(model=CHAT_MODEL, reasoning_effort="none"),
-        tts=lk_openai.TTS(model=TTS_MODEL, voice=VOICE),
+        tts=lk_openai.TTS(
+            model=TTS_MODEL,
+            voice=VOICE,
+            speed=speech_speed(),
+            instructions=SpeechSettings.current().instructions,
+        ),
     )
 
 
@@ -192,9 +202,9 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     except Exception as exc:
         activity.emit("error", "Could not start the voice session", reason=str(exc))
         raise
-    activity.emit("status", "Listening for a task", hint="Say Hey bro or Yo bro")
+    activity.emit("status", "Listening with OpenAI", hint="Tell me what to do; Hey bro is optional")
     greeting = "Brodi ready. Say hey bro, then tell me what to do."
-    if not flag("BRODI_WAKE_REQUIRED"):
+    if not flag("BRODI_WAKE_REQUIRED", default=False):
         greeting = "Brodi ready. Tell me what to do."
     if not policy.ENABLED:
         greeting += " Warning: the safety policy is off."
@@ -203,26 +213,4 @@ async def entrypoint(ctx: agents.JobContext) -> None:
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == "console" and flag("BRODI_LOCAL_WAKE"):
-        import argparse
-
-        import sounddevice as sd
-
-        from brodi.wake_runtime import main
-
-        parser = argparse.ArgumentParser(description="Brodi local voice console")
-        parser.add_argument("--list-devices", action="store_true")
-        parser.add_argument("--input-device")
-        parser.add_argument("--output-device")
-        options = parser.parse_args(sys.argv[2:])
-        if options.list_devices:
-            print(sd.query_devices())
-            sys.exit(0)
-        for role in ("input", "output"):
-            if value := getattr(options, role + "_device"):
-                os.environ[f"BRODI_{role.upper()}_DEVICE"] = value
-        main()
-    else:
-        agents.cli.run_app(server)
+    agents.cli.run_app(server)

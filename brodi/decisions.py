@@ -21,6 +21,7 @@ import openai
 from pydantic import BaseModel, Field, create_model
 
 from .models import cache_key, model
+from .profiler import profiled, span
 
 log = logging.getLogger("brodi.decisions")
 
@@ -229,6 +230,7 @@ class DecisionsClient:
         if self._openai is not None and hasattr(self._openai, "close"):
             await self._openai.close()
 
+    @profiled("decisions")
     async def evaluate(self, state: Any, questions: dict[str, Question]) -> DecisionResponse:
         local = DecisionResponse()
         sent: dict[str, Question] = {}
@@ -248,7 +250,8 @@ class DecisionsClient:
         decisions = getattr(self.openai_client, "decisions", None)
         if decisions is not None:
             try:
-                raw = await decisions.create(model=self.model, input=_serialise_state(state), questions=payload)
+                with span("decisions.request"):
+                    raw = await decisions.create(model=self.model, input=_serialise_state(state), questions=payload)
                 response = _response(raw, sent)
             except Exception as exc:
                 if not self._should_fallback(exc):
@@ -283,6 +286,7 @@ class DecisionsClient:
             return True
         return getattr(exc, "status_code", None) == 404
 
+    @profiled("decisions.fallback")
     async def _fallback(self, state: Any, questions: dict[str, Question]) -> DecisionResponse:
         schema = _batch_schema(questions)
         user = _serialise_state(state)

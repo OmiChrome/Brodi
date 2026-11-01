@@ -81,11 +81,6 @@ class AgentController:
             return
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError("Set OPENAI_API_KEY in .env.local before starting Brodi.")
-        if flag("BRODI_LOCAL_WAKE"):
-            from .wake import model_path
-
-            if not model_path().is_dir():
-                raise RuntimeError("Download the local voice model first: python -m brodi.wake --download-model")
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("ab", buffering=0) as output:
             self._child = subprocess.Popen(

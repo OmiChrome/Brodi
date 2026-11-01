@@ -1,5 +1,8 @@
 # Brodi architecture
 
+> Voice update: Brodi now uses OpenAI streaming transcription and model-free turn endpointing on both platforms. No Vosk or local VAD model is loaded. Start the app to listen; wake phrases are optional. The former offline runtime and its model dependencies were removed. Earlier local-listener setup and measurements below are historical; use the [current README](../README.md) and [hackathon guide](HACKATHON.md) for the active voice flow.
+
+
 ## Scope
 
 Brodi is a Python desktop voice agent for macOS and Windows 11. It accepts short
@@ -23,10 +26,10 @@ smoke-test evidence. These features preserve the Decisions and deterministic exe
 
 ```mermaid
 flowchart TD
-    Start[Windows/macOS launcher] --> Voice[agent.py: local wake runtime]
-    Mic[Microphone] --> Transcript[Local WebRTC VAD / Vosk / optional openWakeWord]
+    Start[Windows/macOS launcher] --> Voice[agent.py: OpenAI voice session]
+    Mic[Microphone] --> Transcript[OpenAI streaming STT / model-free endpointing]
     Voice --> Transcript
-    Transcript --> Gate[wake.py: wake / hotkey / command capture]
+    Transcript --> Gate[voice.py: optional transcript activation]
     Gate --> Core[brodi/agent.py: state and execution gates]
     CLI[brodi/cli.py: text input] --> Core
     Context[ContextPoller: active, running, installed apps] --> Core
@@ -64,7 +67,6 @@ Paths in this table are relative to the repository root.
 | [`brodi/models.py`](../brodi/models.py) | Luna defaults and stable system/schema prompt-cache keys. |
 | [`brodi/paths.py`](../brodi/paths.py) | Platform user-data locations and optional override. |
 | [`brodi/wake.py`](../brodi/wake.py) | Offline listener, wake/hotkey lifecycle, capture window, counters, and model installer. |
-| [`brodi/wake_runtime.py`](../brodi/wake_runtime.py) | Default local microphone session, queue, interruptible reply playback, core integration, shutdown. |
 | [`brodi/voice.py`](../brodi/voice.py) | Legacy LiveKit transcript `VoiceGate` and activation window. |
 | [`brodi/memory.py`](../brodi/memory.py) | Versioned SQLite facts and tool-only shortcuts, retention, matching, confirmed deletion/overwrite. |
 | [`brodi/multi_step.py`](../brodi/multi_step.py) | Typed plans, strict planner schema, attempt/deadline limits, retry/recovery, lightweight observation. |
@@ -105,7 +107,7 @@ Paths in this table are relative to the repository root.
 
 Python 3.12 or newer is required by the project. Runtime dependencies are LiveKit Agents
 with its OpenAI plugin, the OpenAI SDK, Pydantic, psutil, python-dotenv, websockets,
-sounddevice, Vosk, WebRTC VAD, pynput, PyYAML, and Windows-only pywinauto.
+sounddevice, PyYAML, and Windows-only pywinauto.
 Development dependencies add pytest, pytest-asyncio, and Ruff.
 
 `load_environment()` resolves the repository root from its own file, then loads
@@ -122,42 +124,18 @@ using LiveKit connection settings. An OpenAI key is required for the configured 
 and model services. Direct command routing avoids a routing-model request but does
 not make the voice app an offline assistant.
 
-### Default local voice session
+### OpenAI voice session
 
-`agent.py console` selects `wake_runtime.py` unless `BRODI_LOCAL_WAKE=false`.
-The microphone stays local while idle. WebRTC VAD plus Vosk offline keyword spotting
-detects “hey bro” / “yo bro”; an optional custom openWakeWord ONNX engine can trigger
-the same capture window. The stripped remainder enters the unchanged core. Hotkey
-activation uses Ctrl+Alt+B by default. Wake detection interrupts TTS. Reply generation
-and TTS make cloud requests only when a reply is needed. See [IMPLEMENTATION.md](IMPLEMENTATION.md)
-for asset setup, counters, limitations, and the verified idle-network behavior.
+`agent.py console` starts OpenAI streaming STT (`gpt-live-transcribe`) and lightweight silence-based
+turn detection on both supported platforms. The STT plugin receives a small
+`SilenceEndpoint` that commits after 250 ms of quiet; AgentSession receives `vad=None`.
+No local speech-recognition or neural VAD model is loaded. The router handles the final
+transcript before any chat generation. Wake phrases are optional by default.
 
-### Legacy LiveKit voice session
-
-With local wake disabled, the pipeline configures OpenAI STT, a brief conversational LLM, and TTS.
-Turn endpointing and interruptions use the session's VAD path. Preemptive generation
-is disabled so the user-turn hook can route commands before conversational generation.
-
-Realtime mode instead configures the OpenAI Realtime model, semantic turn detection,
-and input transcription. Server-generated automatic responses are disabled; the
-same core agent still handles the completed user turn.
-
-`BrodiAgent.on_user_turn_completed()` checks activation, calls the core agent, then:
-
-- Returns normally for `handoff_to_llm`, allowing a conversational reply.
-- Speaks `Outcome.speak` directly for action responses and suppresses normal generation.
-- Speaks the shutdown response and requests job shutdown for `Outcome.stop`.
-
-### Legacy transcript activation
-
-`VoiceGate` accepts a recognized wake phrase or an utterance within its active window.
-The default window is 20 seconds. It is refreshed after the core finishes handling an
-accepted turn, including a longer task. A valid pending question/confirmation can
-permit an answer outside that window. Blank transcripts are ignored.
-
-In this explicit compatibility mode, audio can still be transcribed by OpenAI
-while Brodi waits for a wake phrase. The default local runtime described above avoids that.
-The text CLI calls the core directly and does not require voice activation.
+`BRODI_VOICE_MODE=realtime` uses the alternative OpenAI Realtime voice backend.
+Both paths keep script execution in the core and preserve its confirmation state.
+Starting/stopping the app starts/stops cloud audio processing. A voice reply is
+AI-generated. The text CLI calls the same core without a microphone.
 
 ## Request routing
 
@@ -380,7 +358,7 @@ site changes, and model mistakes remain possible.
 
 | Data | Handling |
 | --- | --- |
-| Audio/transcripts | Local Vosk by default; legacy LiveKit uses cloud transcription. Accepted text can reach model services when routing needs them. |
+| Audio/transcripts | OpenAI streaming transcription while the voice session is active. Relevant text and app/page context can reach model services for routing. |
 | Facts/shortcuts | Local user-data `memory.sqlite3`; no cloud sync. Cached steps still pass current policy and confirmation gates. |
 | Utterance and app context | Included in model routing/generation when that path is used. |
 | Browser content | Observed text, controls, goals, and relevant history feed browser decisions/helpers and verification. |
@@ -402,12 +380,14 @@ or pricing. The example file is the starting point for local configuration.
 | --- | --- |
 | `OPENAI_API_KEY` | Required for configured OpenAI services. |
 | `BRODI_VOICE_MODE` | `pipeline`; optional `realtime`. |
-| `BRODI_STT_MODEL` | `gpt-4o-mini-transcribe-2025-12-15`. |
+| `BRODI_STT_MODEL` | `gpt-live-transcribe`; `gpt-transcribe` selects cloud server-side endpointing. |
+| `BRODI_STT_SILENCE_MS` | `250` ms before committing a turn. |
+| `BRODI_STT_LANGUAGES`, `BRODI_STT_KEYWORDS` | Language and application-name hints sent to cloud transcription. |
 | `BRODI_TTS_MODEL` | `gpt-4o-mini-tts`. |
 | `BRODI_CHAT_MODEL` | `gpt-6-luna`. |
 | `BRODI_REALTIME_MODEL` | `gpt-realtime-2.1-mini`. |
 | `BRODI_VOICE`, `BRODI_LANG` | `onyx`, `en`. |
-| `BRODI_WAKE_REQUIRED`, `BRODI_WAKE_WINDOW_S` | `1` (legacy gate only), `20` seconds. |
+| `BRODI_WAKE_REQUIRED`, `BRODI_WAKE_WINDOW_S` | `false` (optional transcript gate), `20` seconds. |
 | `BRODI_DECISIONS_MODEL` | `gpt-6-luna`. |
 | `BRODI_FAST_FALLBACK_MODEL` | `gpt-6-luna` for structured routing fallback. |
 | `BRODI_FAST_MODEL`, `BRODI_PLANNER_MODEL` | `gpt-6-luna` for text helpers and bounded plans. |

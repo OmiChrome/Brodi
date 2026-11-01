@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .profiler import profiled
+
 SCRIPT_TIMEOUT_S = 20.0
 
 _APP_ALIASES = {
@@ -159,6 +161,7 @@ async def _run_osascript(script: str, timeout: float) -> ScriptResult:
     return ScriptResult(True, output, error)
 
 
+@profiled("os.script")
 async def run_os_script(script: str, timeout: float = SCRIPT_TIMEOUT_S) -> ScriptResult:
     """Run an OS script with the platform's interpreter and capture its result."""
     if is_windows():

@@ -52,6 +52,8 @@ def test_wake_only_acknowledges_without_api_or_action(assistant, text):
         (" open notepad ", "Notepad"),
         ("please launch Chrome", "Google Chrome"),
         ("Hey bro, open Edge please.", "Microsoft Edge"),
+        ("Could you open Notepad", "Notepad"),
+        ("Hey bro, would you please open Chrome?", "Google Chrome"),
     ],
 )
 def test_open_apps_without_model_or_confirmation(assistant, text, app):
@@ -60,6 +62,14 @@ def test_open_apps_without_model_or_confirmation(assistant, text, app):
     assert result.executed and result.route.tool.name == "open_app"
     assert result.route.args["app"] == app
     assert len(scripts) == 1 and agent.state is State.IDLE
+
+
+def test_polite_prefix_does_not_strip_literal_search_content(assistant):
+    agent, scripts = assistant
+    result = asyncio.run(agent.handle("Could you search YouTube for can you open a window"))
+    assert result.executed
+    assert result.route.args["query"] == "can you open a window"
+    assert "can+you+open+a+window" in scripts[0]
 
 
 @pytest.mark.parametrize(

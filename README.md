@@ -1,262 +1,220 @@
-<img align="right" src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped together in a warm painterly illustration" width="240" />
+<img align="right" src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped in a handshake" width="220" />
 
 <h1 align="left">Brodi</h1>
-<p align="left"><strong>Your bro for getting things done.</strong><br />Voice-controlled desktop assistant for Windows 11 and macOS.</p>
+<p align="left"><strong>Your bro for getting things done.</strong><br />Say the task. See it happen.</p>
 
-A hands-free AI assistant that lets you control your computer and browser using natural voice
-commands. Powered by OpenAI GPT-Live and Decisions API to understand your intent, choose the
-right actions, and get things done.
+Brodi is a voice assistant that takes action on your computer. Open an app, search YouTube, type into Notepad, or run a short routine, just by asking. Built for **Windows 11 and macOS**, with OpenAI speech and decision-making.
+
+> **“Hey bro, open Chrome and go to github.com.”**
+>
+> Brodi runs the steps, shows its progress, and replies: **“Got it.”**
+
+**[Quick start](#quick-start)** · **[Demo](#try-the-demo)** · **[How it works](#how-it-works)** · **[Docs](docs/README.md)**
 
 <br clear="right" />
 
-> **Experimental. Not for production.** This prototype lets a language model run scripts
-> and click around a browser on your machine. An early version, asked to "clean up my
-> desktop", moved every file on the Desktop into a folder. The safety policy in
-> [`brodi/policy.py`](brodi/policy.py) exists because of that. Keep it on, read it
-> first, and don't point voice control at a machine whose setup you can't afford to lose.
+## Small tasks should take a small instruction
 
-```
-Local VAD / wake / STT ─► memory / direct parser / Decisions ─► policy ─► AppleScript / PowerShell / UIA ─► TTS
-                 ├─ website task ─► CDP DOM loop, one Decisions request per step
-                 ├─ unknown action ─► Responses API writes a new tool, checked, cached
-                 └─ small talk ─► OpenAI LLM, one sentence
-```
+Opening apps, finding a video, and switching between windows can break your flow. Brodi lets you ask for the result in everyday language and keep going.
 
-**One `OPENAI_API_KEY`.** Routing, judgments, code generation, conversational replies,
-and TTS use OpenAI when needed. Default console listening and transcription run locally;
-there is no cloud STT session waiting for the wake phrase.
+- **Acts on your computer.** Uses desktop tools and browser controls to carry out requests.
+- **Keeps common tasks simple.** Familiar commands run directly, without a routing-model call.
+- **Remembers useful routines.** Eligible successful commands become local shortcuts that can be reused.
+- **Handles a few steps together.** Short workflows have time limits, limited retries, and approval checks.
+- **Shows its work.** A live activity feed displays your request, current action, and result.
+- **Keeps the conversation short.** “Gotcha.” “On it.” “Got it.” More detail when you ask, or when something needs your input.
 
-**macOS and Windows 11.** The same assistant, tools and policy run on both platforms:
-AppleScript (`osascript`/`osacompile`) on macOS and PowerShell (`powershell.exe`/`pwsh`, AST
-validation) on Windows 11.
+Voice recognition still uses OpenAI, including when a command takes a local shortcut.
 
-## Why it's fast: choose, don't generate
+## What you can say
 
-A typical computer-use agent runs a loop of *screenshot → LLM reasons → emits an action*.
-Each turn is a generation call: seconds of latency, free-form output that has to be parsed,
-and a model that can hallucinate a button that isn't there.
+| Say this | Brodi does this |
+| --- | --- |
+| “Hey bro, open Chrome.” | Opens Chrome with the configured profile. |
+| “Search YouTube for lofi beats.” | Opens the search results. |
+| “Search YouTube.” | Asks what you want to search for. |
+| “Type hello world into Notepad.” | Enters the text on Windows and checks it. |
+| “Open Chrome and go to github.com.” | Runs a short two-step workflow. |
+| “Run presentation workspace.” | Runs the built-in routine to open Chrome and GitHub. |
+| “Open my Google Keep and show the top note.” | Uses your signed-in Chrome session; browser access must be set up first. |
+| “Remember that my preferred browser is Arc.” | Saves the preference locally. |
+| “What do you remember?” | Shows saved facts and the shortcut count. |
 
-Brodi inverts this. Code owns the workflow and hands the Decisions API small, typed questions:
+Start Brodi and wait for **“Listening with OpenAI.”** Then speak. **“Hey bro” is optional.** Say **“cancel”** to dismiss a pending question or action.
 
-- **Routing is one Choice.** The options are the tools that apply to the apps open *right
-  now*, plus "chat" and "new action". Every option gets a probability, not prose. The
-  confidence is a number the code can act on: high → run, middling → ask, low → don't.
-- **Arguments ride along speculatively.** In the same request, every enum argument of
-  every candidate tool is asked as its own Choice ("which app?", "louder or quieter?").
-  Only the winner's answers are read. Free-text arguments are filled by having the Decisions
-  API *select* the right span of the utterance rather than write one.
-- **The browser is the same idea per step.** Code observes the page as an indexed table of
-  controls, then one Decisions request picks an operation (click, fill, scroll, wait, done,
-  blocked) and a target index. Model output never becomes a selector or code; every target
-  is an element the code observed.
-- **Judgments, not chat.** Follow-ups, missing form details, confirmations and outcome
-  verification are single predicates or choices on the same endpoint.
+App support depends on the platform, installed apps, and permissions. Windows has tray controls and native UI Automation; macOS uses AppleScript and system permissions.
 
-## Voice: local activation, brief replies
+## Quick start
 
-Default console mode uses WebRTC VAD plus Vosk offline keyword spotting and command
-transcription. A custom openWakeWord ONNX model can be supplied. Press **Ctrl+Alt+B**
-for the hotkey fallback. Brodi replies briefly: “Gotcha,” “Yo bro,” or “Got it.”
-OpenAI TTS uses `gpt-4o-mini-tts` and voice `onyx`; `BRODI_TTS_ENABLED=false` disables it.
+You need **Python 3.12+**, **[uv](https://docs.astral.sh/uv/)**, and an **[OpenAI API key](https://platform.openai.com/api-keys)** with access to the configured models. Voice mode also needs an internet connection, microphone, and speaker. Install Chrome for the browser examples.
 
-Routing, codegen, text helpers, chat, and the bounded planner default to **gpt-6-luna**;
-generation uses `BRODI_REASONING_EFFORT=none` and stable prompt-cache keys. Keep those
-defaults unless you explicitly intend to change them.
-`BRODI_LOCAL_WAKE=false` selects the legacy LiveKit console path, which uses cloud STT
-(`BRODI_VOICE_MODE=pipeline`) or Realtime (`BRODI_VOICE_MODE=realtime`).
-
-## Setup
+### 1. Get the project
 
 ```bash
+git clone https://github.com/OmiChrome/Brodi.git
+cd Brodi
 uv sync
-cp .env.example .env.local   # OPENAI_API_KEY is the only required secret
-uv run python -m brodi.wake --download-model  # one-time offline speech asset download
 ```
 
-- macOS asks for Automation access per app the first time. Grant it in System Settings ▸
-  Privacy & Security ▸ Automation.
-- Windows 11 needs Python 3.12 and `uv`; PowerShell 5.1 or 7 is already present.
-- For browser tasks, once: open `chrome://inspect/#remote-debugging` and tick **Allow remote
-  debugging for this browser instance**. Click Allow on Chrome's sheet at first connection.
-- `BRODI_CHROME_PROFILE_EMAIL` pins Chrome to one Google account; unset, the last-used
-  profile is kept. On Windows the Local State path comes from `%LOCALAPPDATA%`.
-- Set `BRODI_OS=win32` or `darwin` to exercise the other platform backend on one machine.
+### 2. Add your API key
 
-## Run
-
-On Windows, double-click `brodi.cmd` or run `.\brodi.cmd start`. It uses the project's
-installed Python environment when available. Say **"Hey bro"** or **"Yo bro"** to activate
-voice control, then give a command within 20 seconds. You can also combine them:
-
-- "Hey bro, open Chrome."
-- "Yo bro, open Notepad."
-- "Hey bro, go to YouTube."
-- "Search YouTube for lofi beats."
-- "Open my Google Keep and show the top note."
-
-"Hey bro" by itself replies "Gotcha." "Search YouTube" asks what to
-search for; answer with the topic, or say "cancel". During the active window, short
-commands work without repeating the wake phrase. After a task finishes, the window starts
-again. Set `BRODI_WAKE_WINDOW_S` to change its length. `BRODI_WAKE_MODE` accepts
-`continuous`, `hotkey`, or `both` (default). Audio stays local while waiting; accepted
-command text can reach cloud routing when the direct parser or memory cannot handle it.
-
-“Open Chrome and go to github.com” runs a bounded deterministic plan. Successful app/site
-commands become local SQLite shortcuts; repeating one skips model routing. Say “remember
-that my preferred browser is Arc,” “what do you remember?”, or “forget preferred browser.”
-Replacing facts and deleting memory require confirmation. “Type hello world into Notepad”
-uses an isolated Windows UIA helper and verifies the entered text.
-
-Opening apps and websites and simple searches use deterministic routing. Google Keep note
-tasks use the browser agent and need an already signed-in Chrome profile and remote debugging
-enabled at `chrome://inspect/#remote-debugging`. Brodi discovers Chrome's local debugging
-port automatically, or uses `BRODI_CDP_URL` when explicitly set. If access is unavailable,
-it opens the Keep homepage and explains the setup step instead of claiming the note was opened.
-Run `brodi doctor` (or `python -m brodi.cli --doctor`) to check the API key, Chrome,
-browser connection, and policy. The diagnostic never prints the key or reads notes.
-Project settings load from `.env.local`, followed by `.env`, before runtime defaults
-are imported; existing environment variables take precedence. `brodi.yaml` supplies
-lower-priority settings; copy [config.example.yaml](config.example.yaml).
-
-```bat
-brodi start        :: start the assistant and stream readable activity
-brodi tray         :: open Windows tray controls without starting voice
-brodi status       :: stream current activity, accepted input, and output
-brodi status --once :: print a snapshot and exit
-brodi start --once  :: start in the background and print a snapshot
-brodi log          :: recent readable activity
-brodi debug        :: technical logs and tracebacks
-brodi stop
-brodi restart
-brodi doctor       :: check setup without recording audio or calling a model
-```
-
-### Windows tray controls
-
-`brodi start` automatically opens the branded Brodi icon in the Windows system tray.
-Right-click it for **Start assistant**, **Stop assistant**, **Restart assistant**,
-**Show activity**, **Open log**, and **Quit Brodi**. Double-click the icon to show
-activity. If Windows hides it, look in the tray's overflow menu.
-
-**Stop assistant** leaves the tray available so you can start listening again.
-**Quit Brodi** stops both the assistant and tray; apps Brodi opened stay open.
-Run `brodi tray` to open the controls without starting voice. Set `BRODI_TRAY=false`
-in `.env.local` to disable automatic tray startup (`true` is the default).
-
-The live activity view shows **YOU**, **DOING**, **GATHERED**, **BRODI**, **RESULT**, and
-**STATE** rows: what Brodi heard, what it is doing, information returned by tools/pages,
-its reply, and whether it is listening or waiting for an answer. For example:
-
-```text
-13:04:01  YOU       Hey bro, open Chrome
-13:04:01  DOING     Opening Google Chrome
-13:04:02  GATHERED  Tool output
-                    Output: Google Chrome opened
-13:04:02  BRODI     Google Chrome opened
-13:04:02  RESULT    Task completed
-13:04:02  STATE     Listening for a task
-```
-
-In an interactive terminal, type **Q + Enter** to close the view while keeping the
-assistant running; **Ctrl+C** also closes the viewer. Use `brodi stop` to stop Brodi.
-The activity journal defaults to `.freebuff/activity.jsonl` (ignored by Git), or set
-`BRODI_ACTIVITY_LOG`. See [activity documentation](docs/ACTIVITY.md) for details.
-
-`brodi.cmd` forwards to `console.ps1` on Windows. On macOS, `brody` runs the same
-local console mode through `uv` and tracks its process for `status` and `stop`.
-If audio goes to the wrong device, set `BRODI_OUTPUT_DEVICE` in `.env.local` to a
-speaker name shown by `uv run python agent.py console --list-devices`. You can set
-`BRODI_INPUT_DEVICE` the same way for the microphone, then run `brody restart`.
-Install the macOS command once with:
-
-```bash
-chmod +x brody
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/brody" ~/.local/bin/brody
-# Add ~/.local/bin to PATH in ~/.zshrc if it is not already there.
-```
-
-No LiveKit server or cloud account is involved —
-console mode runs the whole pipeline on your machine and your one OpenAI key. Put this
-folder on your `PATH` (done automatically by setup on Windows) or call `.\console.ps1 start`
-directly. Foreground and macOS equivalents:
-
-```bash
-uv run python agent.py console                    # foreground, either platform
-brody start                                      # macOS detached: start|stop|status|restart|log
-uv run python -m brodi.cli --dry "open github dot com"   # route only, no audio
-uv run python -m brodi.cli --policy               # every tool and whether policy allows it
-```
-
-See [implementation and smoke tests](docs/IMPLEMENTATION.md) for the new modules,
-configuration, live Windows results, and latency limits. Dispatch can be fast without
-making speech endpointing, application startup, or network navigation instantaneous.
-
-## What it can and can't do
-
-**Allowed:** open, switch and quit ordinary apps; open files, folders and URLs; browser tabs
-and web tasks; Slack, Messages and Mail; Notes, Reminders, Calendar; media, volume,
-notifications, screenshots, dark mode.
-
-**Blocked (both platforms):** System Settings and preference writes; terminals and developer
-tools; shell commands outside a short allow-list; package managers and language tooling;
-system and config paths; deleting, moving or duplicating files; emptying the trash; power and
-session control; admin privileges; keychain, passwords and credential managers. Windows also
-blocks `cmd`/`regedit`/Task Manager, `Remove-Item`/`Clear-RecycleBin`/`Stop-Computer`/
-`Invoke-Expression`/`Set-ExecutionPolicy`, elevation (`-Verb RunAs`), and `C:\Windows`,
-`C:\Program Files`, AppData, HKLM: and the Windows Run key. In the browser: buying, checkout,
-payments, sign-in and account changes.
-
-The policy runs when a tool is loaded, when a new tool is generated, and on the rendered
-script right before execution. Anything that changes state (a risky script, an add-to-cart,
-a freshly written tool) is read back and needs a spoken yes. It does not protect against a
-mis-heard word that happens to be a valid command; `BRODI_POLICY=off` exists for debugging
-and the greeting says so out loud.
-
-## Layout
-
-For the full module and runtime guide, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-For Brodi's brief "gotcha / yo bro / got it / on it" voice and interaction rules, see
-[docs/PERSONAS.md](docs/PERSONAS.md). The [documentation index](docs/README.md) links both.
-
-| Path | Role |
-|---|---|
-| [`agent.py`](agent.py) | Local wake console by default; legacy LiveKit pipeline/Realtime and worker entrypoints |
-| [`brodi/wake.py`](brodi/wake.py), [`wake_runtime.py`](brodi/wake_runtime.py) | Offline microphone/wake lifecycle, hotkey, command capture, short speech replies |
-| [`brodi/memory.py`](brodi/memory.py), [`multi_step.py`](brodi/multi_step.py) | Local facts/shortcuts and bounded plans, observation, retry, approval continuation |
-| [`brodi/windows_uia.py`](brodi/windows_uia.py), [`native_launch.py`](brodi/native_launch.py) | Isolated native input/control and fast trusted Windows app launches |
-| [`brodi/decisions.py`](brodi/decisions.py) | OpenAI Decisions wrapper (choices/predicates, `responses.parse` fallback) |
-| [`brodi/router.py`](brodi/router.py) | Batched routing, speculative arguments, follow-up and completeness judgments |
-| [`brodi/agent.py`](brodi/agent.py) | State machine: act, ask, confirm, learn |
-| [`brodi/os_backend.py`](brodi/os_backend.py) | Execution, syntax validation, escaping and desktop context on both OSes |
-| [`brodi/registry.py`](brodi/registry.py) + [`tools/seed.json`](tools/seed.json) | Tools with typed argument slots and `script`/`script_win`; learned ones go to `tools/learned.json` |
-| [`brodi/generator.py`](brodi/generator.py) | Responses API writes a new tool: compile, effect, policy and Decisions-review gates |
-| [`brodi/browser_task.py`](brodi/browser_task.py) | Self-contained CDP loop in the user's Chrome: pinned profile, follow-ups, spoken results |
-| [`brodi/policy.py`](brodi/policy.py) | The safety policy, macOS and Windows 11 |
-| [`brodi/chrome.py`](brodi/chrome.py), [`applescript.py`](brodi/applescript.py), [`resolvers.py`](brodi/resolvers.py), [`cli.py`](brodi/cli.py) | Profile lookup, platform facade, computed args, osascript, text REPL |
-
-Add a tool by appending to `tools/seed.json`: a name, description, optional app `scope`,
-`args` (enum with `criteria`, or `text`), an AppleScript `script`, a PowerShell `script_win`
-for Windows, and what to `speak` afterwards. See the existing entries.
-
-## Development
-
-```bash
-uv run pytest -q                                  # offline tests, including short voice commands
-uv run ruff check . && uv run ruff format --check .
-```
-
-Real Chrome input and navigation tests use a separate headless profile and local fixture
-pages. They do not use your signed-in browser, microphone, or paid APIs. On PowerShell:
+Create a local settings file:
 
 ```powershell
-$env:BRODI_CHROME_TESTS = '1'
-.\.venv\Scripts\python.exe -m pytest -q
-Remove-Item Env:BRODI_CHROME_TESTS
+# Windows PowerShell
+Copy-Item .env.example .env.local
 ```
 
-These tests cover replacing field text, submitting a search, opening a note card, and
-operating checkboxes. They complement live account checks; a fixture note is not a test
-of access to your real Google Keep account.
+```bash
+# macOS
+cp .env.example .env.local
+```
 
-MIT, see [LICENSE](LICENSE).
+Open `.env.local` and fill in:
+
+```dotenv
+OPENAI_API_KEY=your_key_here
+```
+
+One key covers Brodi's OpenAI features. Local console mode does not need a LiveKit cloud account or a local speech-model download.
+
+### 3. Start talking
+
+**Windows**
+
+```powershell
+.\brodi.cmd start
+```
+
+Double-clicking `brodi.cmd` also starts Brodi. Right-click its tray icon to start, stop, restart, show activity, or open the log.
+
+```powershell
+.\brodi.cmd status --once  # Check the current state
+.\brodi.cmd stop           # Stop the assistant
+.\brodi.cmd tray           # Open controls without starting the microphone
+```
+
+**macOS**
+
+```bash
+uv run python agent.py console
+```
+
+Allow microphone access and any requested app Automation permissions. Native input may also need Accessibility access. For background controls, run `chmod +x brody`, then use `./brody start`, `./brody status`, and `./brody stop`.
+
+### Prefer typing?
+
+The text CLI uses the same command engine without recording audio:
+
+```bash
+uv run python -m brodi.cli --no-learn "open Chrome"
+uv run python -m brodi.cli --dry "open github dot com"
+uv run python -m brodi.cli --doctor
+uv run python -m brodi.cli --memory list
+```
+
+`--dry` previews routing without executing or learning tools; unfamiliar requests may still call a model. `--doctor` checks setup and browser access without recording audio or making model calls.
+
+## Try the demo
+
+Keep the activity view next to Chrome and a clean Notepad window.
+
+1. Say **“Hey bro, open Notepad.”** Show the app opening on Windows.
+2. Say **“Type hello world into Notepad.”** Show the entered text.
+3. Say **“Search YouTube,”** then answer **“lofi beats.”** Show the follow-up becoming a search.
+4. Say **“Run presentation workspace.”** Watch Chrome and GitHub open through a short plan.
+5. Repeat the workspace request to demonstrate a saved shortcut, then stop the assistant from the tray.
+
+The repository also includes **six scripted demo scenarios** and a profiler:
+
+```powershell
+.\scripts\demo.ps1                 # Rehearse without opening apps or calling APIs
+.\scripts\demo.ps1 -Run -Repeat 2  # Run the demo with real apps and tabs
+.\scripts\profile.ps1              # Measure local routing and execution stages
+```
+
+Portable equivalents: `uv run python -m brodi.demo` and `uv run python -m brodi.performance`. Demo runs use temporary memory and leave your saved shortcuts alone.
+
+See the [hackathon pitch and walkthrough](docs/HACKATHON.md) and [profiling guide](docs/PERFORMANCE.md) for presentation notes, reports, and measurement limits. Reported dispatch timings exclude speech recognition, page loading, and spoken playback.
+
+## How it works
+
+```mermaid
+flowchart TD
+    A["You say a task"] --> B["OpenAI transcribes your voice"]
+    B --> C["Brodi checks shortcuts and common commands"]
+    C --> D["OpenAI Decisions helps when interpretation is needed"]
+    C --> E["Validate the action and ask for approval if needed"]
+    D --> E
+    E --> F["Run desktop tools or browser controls"]
+    F --> G["Show progress and give a short reply"]
+```
+
+**The key idea: let code handle familiar actions and use AI where interpretation helps.** Brodi uses PowerShell and Windows UI Automation on Windows, AppleScript on macOS, and Chrome's page controls for browser tasks.
+
+Short desktop plans default to **five action attempts**, **eight seconds per step**, and a **forty-second execution budget**. Optional tool generation proposes and checks a new tool, then asks for confirmation before its first run.
+
+### Where OpenAI fits
+
+| Role | Current project configuration |
+| --- | --- |
+| Hear the request | Streaming speech recognition with `gpt-live-transcribe`. |
+| Choose actions | Decisions for tool selection, arguments, and checks; configured model: `gpt-6-luna`. |
+| Build plans and tools | Responses with structured outputs; configured model: `gpt-6-luna`. |
+| Speak back | `gpt-4o-mini-tts` with the `onyx` voice, at `1.25x` speed by default. |
+
+These are the repository's configured defaults. Model access depends on your API account. The Decisions wrapper supports a structured Responses fallback, and `BRODI_VOICE_MODE=realtime` selects the alternative voice backend.
+
+## Browser access
+
+Opening websites works without extra browser debugging setup. Reading notes or interacting with page controls requires Chrome access.
+
+1. Use a Chrome profile already signed in to the site you want.
+2. In supported Chrome builds, open `chrome://inspect/#remote-debugging` and enable **Allow remote debugging for this browser instance**.
+3. Allow the connection when Chrome asks.
+4. Run `uv run python -m brodi.cli --doctor` to check access.
+
+Brodi discovers the connection or uses `BRODI_CDP_URL`. Set `BRODI_CHROME_PROFILE_EMAIL` or `BRODI_CHROME_PROFILE_DIR` to choose a profile. If page access is unavailable, Brodi explains what is missing.
+
+## Your control and your data
+
+Brodi is a **hackathon prototype** that can run local scripts and interact with signed-in websites. Keep the default safety policy enabled and try it with non-sensitive tasks first. It checks actions, asks before sensitive changes, and applies the same checks to saved shortcuts.
+
+**Start and Stop control the voice session.** While it is active, microphone audio is sent to OpenAI for transcription. Relevant command and app or page context may also be sent for interpretation. Spoken replies are AI-generated. An optional wake phrase does not make listening local.
+
+Facts and shortcuts are stored in an **unencrypted local SQLite database** under `%LOCALAPPDATA%/Brodi` on Windows or `~/Library/Application Support/Brodi` on macOS. Activity and logs can contain commands, results, and page text. Treat them as personal data, and keep keys, local settings, and runtime files out of Git.
+
+## Settings and development
+
+Start with [.env.example](.env.example) or [config.example.yaml](config.example.yaml). Settings take precedence in this order:
+
+**Environment → `.env.local` → `.env` → `brodi.yaml` → defaults**
+
+Restart Brodi after changing settings. The examples cover models, voice, Chrome profiles, memory, workflow limits, and the safety policy.
+
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
+```
+
+The regular tests use mocked provider and desktop responses, with no paid model calls. Real Chrome fixture tests are optional; see the [implementation guide](docs/IMPLEMENTATION.md).
+
+When contributing, start with an existing command or tool, keep platform and approval checks, and add a focused behavior test. Read the architecture and persona guides before changing execution or spoken replies.
+
+## Explore the project
+
+| Guide | What you will find |
+| --- | --- |
+| [Hackathon guide](docs/HACKATHON.md) | Pitch, judge walkthrough, and evidence for the demo. |
+| [Architecture](docs/ARCHITECTURE.md) | Modules, routing, execution, and trust boundaries. |
+| [Implementation](docs/IMPLEMENTATION.md) | Memory, workflows, native input, tests, and validation limits. |
+| [Performance](docs/PERFORMANCE.md) | Profiling, measured bottlenecks, and presentation scripts. |
+| [Activity](docs/ACTIVITY.md) and [Windows tray](docs/TRAY.md) | Progress, logs, and assistant controls. |
+| [Personas](docs/PERSONAS.md) | Brodi's voice, short replies, and interaction rules. |
+
+[MIT licensed](LICENSE). Built with OpenAI, LiveKit, SQLite, pywinauto, pystray, and native desktop automation.
+
+---
+
+*Made for OpenAI DevDay Exchange Community Hackathon.*

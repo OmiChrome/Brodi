@@ -8,6 +8,7 @@ on macOS or PowerShell on Windows 11.
 from __future__ import annotations
 
 import asyncio
+from contextvars import Context
 from dataclasses import dataclass
 
 from .os_backend import (
@@ -25,6 +26,7 @@ from .os_backend import (
 from .os_backend import (
     get_running_apps as _get_running_apps,
 )
+from .profiler import profiled
 
 OSASCRIPT_TIMEOUT_S = SCRIPT_TIMEOUT_S
 
@@ -89,7 +91,8 @@ class ContextPoller:
     async def start(self) -> MacContext:
         if self._task is None:
             self._ctx = await self._refresh()
-            self._task = asyncio.create_task(self._loop(), name="brodi-context-poller")
+            # A long-lived poller must not retain a command's trace/context.
+            self._task = asyncio.create_task(self._loop(), name="brodi-context-poller", context=Context())
         assert self._ctx is not None
         return self._ctx
 
@@ -102,18 +105,20 @@ class ContextPoller:
                 pass
             self._task = None
 
+    @profiled("context")
     async def latest(self) -> MacContext:
         """Cached snapshot; starts the poller on first use."""
         if self._ctx is None:
             return await self.start()
         return self._ctx
 
+    @profiled("context.refresh")
     async def _refresh(self) -> MacContext:
         import time
 
         now = time.monotonic()
         if now - self._installed_at > self.installed_interval:
-            self._installed = get_installed_apps()
+            self._installed = await asyncio.to_thread(get_installed_apps)
             self._installed_at = now
         active, running = await asyncio.gather(get_active_app(), get_running_apps())
         return MacContext(active_app=active, running_apps=running, installed_apps=self._installed)

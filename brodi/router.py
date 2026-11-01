@@ -18,6 +18,7 @@ from typing import Any
 from . import commands, os_backend
 from .applescript import MacContext
 from .decisions import ChoiceQuestion, DecisionsClient, PredicateQuestion
+from .profiler import profiled
 from .registry import MAX_CHOICE_OPTIONS, Tool, ToolRegistry
 
 log = logging.getLogger("brodi.router")
@@ -85,6 +86,7 @@ class JevRouter:
         await self.client.aclose()
 
     # ------------------------------------------------------------------ routing
+    @profiled("route")
     async def route(
         self,
         utterance: str,
@@ -273,6 +275,7 @@ class JevRouter:
         return float(resp.predicates["web_goal_complete"].noul), resp.choices["web_goal_missing"].choice
 
     # ---------------------------------------------------------- text arguments
+    @profiled("route.text_args")
     async def _fill_text_args(
         self, utterance: str, ctx: MacContext, tool: Tool, specs: list[Any], route: Route
     ) -> None:

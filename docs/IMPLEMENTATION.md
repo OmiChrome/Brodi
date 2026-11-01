@@ -1,12 +1,14 @@
 # Local wake, native input, memory, and bounded plans
 
+> Voice update: Brodi uses `gpt-live-transcribe` cloud streaming transcription on both platforms. A lightweight amplitude-based silence detector commits audio after 250 ms of quiet; no Vosk or local speech model is loaded. Start the app to listen; wake phrases are optional. The former offline runtime and its model dependencies were removed. Earlier local-listener setup and measurements below are historical; use the [current README](../README.md) and [hackathon guide](HACKATHON.md) for the active voice flow.
+
+
 ## What changed
 
-The default `agent.py console` path now uses an offline microphone listener and local
-transcription. Accepted command text still enters `DynamicMacAgent`: deterministic
-commands and saved shortcuts first, then Decisions where needed, the existing policy
-and confirmation gates, and the appropriate executor. TTS is requested only for replies.
-No cloud STT session is held open while idle.
+The default `agent.py console` path uses OpenAI streaming transcription, server-side
+turn detection, and on-demand speech output. Commands enter `DynamicMacAgent` for
+routing, memory, deterministic execution, and bounded plans. No local speech or VAD
+model is loaded, and no local model download is required.
 
 All Brodi instances were stopped for this implementation. The live probes create
 short-lived helpers and test documents; they do not install a background service.
@@ -16,8 +18,7 @@ brodi/
   models.py          model defaults and stable prompt cache keys
   config.py          env + safe YAML configuration
   paths.py           platform-specific private user-data location
-  wake.py            controller, local VAD/keyword spotting, microphone, hotkey, counters
-  wake_runtime.py    offline console loop -> existing core -> on-demand reply/TTS
+  wake.py            text-only wake-prefix utilities; no audio or models
   windows_uia.py     bounded subprocess owning pywinauto backend="uia"
   native_launch.py   fast trusted Windows app/site launch; no shell generation
   memory.py          versioned SQLite facts and tool-sequence shortcuts
@@ -54,50 +55,21 @@ The model/effort defaults and structured planner/codegen calls were checked agai
 the live API. The implementation uses the model the user requested rather than
 substituting a different tier.
 
-## Local wake and hotkey
+## OpenAI voice
 
-Install dependencies and download the local speech asset once:
+Start the app and give a command. `gpt-live-transcribe` recognizes speech through a
+streaming OpenAI transcription connection. A lightweight amplitude detector commits
+turns after 250 ms of quiet; it does not transcribe speech or load a neural model.
+The STT plugin uses this explicit detector and AgentSession uses `vad=None`, preventing
+the SDK's local Silero fallback. Automatic conversational generation waits for task routing.
+?Hey bro? is optional (`BRODI_WAKE_REQUIRED=false`). Stop/Quit closes the voice session.
+The former Vosk runtime, installer, and local inference dependencies have been removed.
+`wake.py` now contains text-only prefix utilities used by tests and smoke probes.
 
-```powershell
-uv sync
-uv run python -m brodi.wake --download-model
-.\brodi.cmd start
-```
-
-The model is stored under the Brodi user-data directory, not in Git. In this Windows
-setup that is `%LOCALAPPDATA%\Brodi\models\vosk-model-small-en-us-0.15`.
-
-The ready-to-run fallback uses WebRTC VAD and Vosk offline recognition/endpointing.
-It detects `hey bro` / `yo bro`, including punctuation and `please`, and passes only
-the remainder to the core. A short follow-up window accepts subsequent commands.
-Hotkey mode uses the same local capture/decoder; **Ctrl+Alt+B** is the default activation
-shortcut. Hotkey activation resets old decoder audio. The capture queue and rolling
-buffer are bounded; an overrun drops the command and requires fresh activation.
-
-`LocalListener.start()`, `.stop()`, `.running`, and `.engine` expose its lifecycle.
-`WakeController` separates engine input from command callbacks so recognition and
-routing can be tested without microphone hardware. Recognition happens in a background
-thread; commands enter a bounded async queue and execute serially.
-
-A configured `BRODI_OPENWAKEWORD_MODEL` prefers a custom ONNX keyword engine. Custom
-`hey bro`/`yo bro` weights and openWakeWord inference dependencies are **not shipped**.
-If that optional engine cannot load, the activity feed explicitly reports fallback
-to the working local VAD/Vosk path. The upstream package's transitive TFLite dependency
-does not resolve across the project's Python range, so it is not an unconditional
-project dependency. Provision compatible engine dependencies and model/frontend assets
-before using a custom model. Porcupine is not implemented.
-
-Activation interrupts pending local TTS; replies fetched before a newer activation are
-discarded. `BRODI_TTS_ENABLED=false` disables speech output for testing. Wake counters
-record detections, commands, expired windows, and user-reported false alarms. Saying
-`false alarm` in an active window marks one. The false-positive rate is based on those
-reports, not a calibrated microphone accuracy score; an expired window is counted
-separately.
-
-`BRODI_LOCAL_WAKE=false` explicitly selects the old LiveKit console behavior, including
-its cloud transcription/Realtime behavior and transcript gate. The default local console
-does not use that session. Physical microphone permissions and hotkey accessibility
-permissions still depend on the OS.
+A prerecorded ?Hey bro. Open Chrome.? passed through the real OpenAI transcription
+stream and the core to an actual Chrome launch. Repeating it hit local shortcut memory
+without a routing-model call. The hidden Windows voice process reached its listening
+state. These integration checks are not a broad acoustic accuracy benchmark.
 
 ## Native Windows input
 
@@ -203,13 +175,7 @@ settings, and is ignored by Git. Copy [config.example.yaml](../config.example.ya
 | --- | --- |
 | `BRODI_DECISIONS_MODEL`, `BRODI_CODEGEN_MODEL`, `BRODI_FAST_MODEL`, `BRODI_PLANNER_MODEL`, `BRODI_CHAT_MODEL`, `BRODI_FAST_FALLBACK_MODEL` | `gpt-6-luna` |
 | `BRODI_REASONING_EFFORT` | `none` |
-| `BRODI_LOCAL_WAKE` | `true` |
-| `BRODI_WAKE_WORDS` | `hey bro,yo bro` |
-| `BRODI_WAKE_MODE` | `both`; also `continuous` or `hotkey` |
-| `BRODI_WAKE_SENSITIVITY` | `0.65`; accepted range `0.5`–`0.8` |
-| `BRODI_WAKE_HOTKEY` | `<ctrl>+<alt>+b` |
 | `BRODI_WAKE_WINDOW_S` | `20`; pending answers can extend capture to 60 seconds |
-| `BRODI_WAKE_MODEL_PATH`, `BRODI_OPENWAKEWORD_MODEL` | Optional local asset paths |
 | `BRODI_TTS_ENABLED` | `true` |
 | `BRODI_ENABLE_MULTI_STEP` | `true` |
 | `BRODI_MAX_STEPS` | `5`, capped at `6` |
@@ -232,8 +198,6 @@ uv run ruff format --check .
 # Actual local side effects: opens Chrome/GitHub and a separate Notepad test document.
 uv run python -m brodi.smoke --latency --notepad
 
-# Offline speech replay; no microphone, playback, or model request.
-uv run python -m brodi.smoke --wake-audio path/to/pcm16.wav
 ```
 
 Latency probes use temporary memory rather than changing the user's facts/shortcuts.
@@ -255,9 +219,7 @@ and **zero connection attempts**. These are not accent/noise accuracy benchmarks
 a test of another person's physical voice. macOS paths are unit/simulation tested,
 not physically exercised on this Windows machine. Custom openWakeWord weights,
 long-running false-positive measurement, and acoustic echo cancellation remain follow-up
-work. During short TTS playback the listener discards microphone audio to prevent Brodi
-from executing its own reply; Ctrl+Alt+B can still interrupt playback. Spoken wake
-barge-in during playback would need echo cancellation. Chrome remote-debugging permission
+work. The OpenAI pipeline disables speech interruptions during short spoken replies. Chrome remote-debugging permission
 is still required for real website interaction.
 
 References: [Luna model/effort support](https://developers.openai.com/api/docs/models/gpt-6-luna),

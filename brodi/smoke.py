@@ -8,7 +8,6 @@ import json
 import subprocess
 import time
 import uuid
-import wave
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -95,43 +94,6 @@ def notepad() -> dict:
     }
 
 
-def wake_audio(path: Path) -> dict:
-    import numpy as np
-    import vosk
-
-    from .wake import WakeController, model_path
-
-    with wave.open(str(path), "rb") as wav:
-        if wav.getsampwidth() != 2:
-            raise ValueError("Wake smoke requires PCM16 WAV")
-        samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype=np.int16)
-        if wav.getnchannels() > 1:
-            samples = samples.reshape(-1, wav.getnchannels()).mean(axis=1)
-        if wav.getframerate() != 16000:
-            samples = np.interp(
-                np.arange(0, len(samples), wav.getframerate() / 16000), np.arange(len(samples)), samples
-            ).astype(np.int16)
-    vosk.SetLogLevel(-1)
-    decoder = vosk.KaldiRecognizer(vosk.Model(str(model_path())), 16000)
-    commands = []
-    controller = WakeController(commands.append)
-    audio = samples.astype(np.int16).tobytes() + bytes(16000 * 2)
-    transcripts = []
-    for offset in range(0, len(audio), 2560):
-        final = decoder.AcceptWaveform(audio[offset : offset + 2560])
-        data = json.loads(decoder.Result() if final else decoder.PartialResult())
-        text = data.get("text" if final else "partial", "")
-        if text:
-            controller.feed_text(text, final=bool(final))
-            if final:
-                transcripts.append(text)
-    final_text = json.loads(decoder.FinalResult()).get("text", "")
-    if final_text:
-        controller.feed_text(final_text)
-        transcripts.append(final_text)
-    return {"transcripts": transcripts, "commands": commands, "wake_detections": controller.stats.detections}
-
-
 def main() -> None:
     load_environment()
     parser = argparse.ArgumentParser()
@@ -139,18 +101,82 @@ def main() -> None:
         "--latency", action="store_true", help="actually open Chrome/GitHub and measure dispatch/cache paths"
     )
     parser.add_argument("--notepad", action="store_true", help="type and read back hello world in a new test document")
-    parser.add_argument("--wake-audio", type=Path, help="decode a prerecorded PCM16 WAV completely locally")
+    parser.add_argument(
+        "--cloud-stt",
+        type=Path,
+        help="send a PCM16 mono 24 kHz WAV through the real cloud STT adapter; no microphone or actions",
+    )
     args = parser.parse_args()
     output = {}
     if args.latency:
         output.update(asyncio.run(latency()))
     if args.notepad:
         output.update(notepad())
-    if args.wake_audio:
-        output.update(wake_audio(args.wake_audio))
+    if args.cloud_stt:
+        output.update(asyncio.run(cloud_stt(args.cloud_stt)))
     if not output:
         parser.error("Choose a smoke test")
     print(json.dumps(output, ensure_ascii=False, indent=2))
+
+
+async def cloud_stt(path: Path) -> dict:
+    """Replay a fixture at microphone pace through the same adapter as the app."""
+    import wave
+
+    from livekit import rtc
+    from livekit.agents import stt, utils
+
+    from .transcription import create_stt
+
+    with wave.open(str(path), "rb") as wav:
+        if (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) != (1, 2, 24000):
+            raise ValueError("Cloud probe requires mono PCM16 WAV at 24000 Hz")
+        pcm = wav.readframes(wav.getnframes())
+    first_text = None
+    last_audio = None
+    started = time.perf_counter()
+    async with utils.http_context.open():
+        recognizer = create_stt()
+        stream = recognizer.stream()
+
+        async def send():
+            nonlocal last_audio
+            # End with a second of silence for the cloud speech detector.
+            data = pcm + bytes(48000)
+            for offset in range(0, len(data), 960):
+                chunk = data[offset : offset + 960]
+                stream.push_frame(rtc.AudioFrame(chunk, 24000, 1, len(chunk) // 2))
+                if offset < len(pcm):
+                    last_audio = time.perf_counter()
+                await asyncio.sleep(len(chunk) / 48000)
+
+        sender = asyncio.create_task(send())
+        try:
+            async with asyncio.timeout(30):
+                async for event in stream:
+                    if event.type == stt.SpeechEventType.INTERIM_TRANSCRIPT and first_text is None:
+                        first_text = (time.perf_counter() - started) * 1000
+                    if event.type == stt.SpeechEventType.FINAL_TRANSCRIPT and event.alternatives:
+                        return {
+                            "cloud_stt": {
+                                "model": recognizer._opts.model,
+                                "transcript": event.alternatives[0].text,
+                                "first_text_ms": round(first_text, 2) if first_text is not None else None,
+                                "final_after_last_audio_ms": round(
+                                    (time.perf_counter() - (last_audio or started)) * 1000, 2
+                                ),
+                                "silence_ms": round(recognizer._vad.silence_s * 1000)
+                                if recognizer._vad
+                                else recognizer._opts.turn_detection.silence_duration_ms,
+                                "measurement": "Synthetic recorded speech sent at microphone pace; no actions executed.",
+                            }
+                        }
+        finally:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+            await stream.aclose()
+            await recognizer.aclose()
+    raise RuntimeError("Cloud transcription ended without a final transcript")
 
 
 if __name__ == "__main__":

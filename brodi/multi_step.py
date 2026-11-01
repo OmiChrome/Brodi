@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .commands import parse_command
 from .models import cache_key, model
+from .profiler import profiled
 
 
 class Step(BaseModel):
@@ -77,6 +78,7 @@ def deterministic_plan(text: str, apps: list[str]) -> Plan | None:
     return Plan(steps=steps)
 
 
+@profiled("plan.compose")
 async def compose_plan(text: str, tools: list[dict], client, observation: dict | None = None) -> Plan:
     import json
 

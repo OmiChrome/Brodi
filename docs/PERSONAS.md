@@ -53,6 +53,13 @@ enough words to be clear. Never hide a failure behind "got it."
 Use normal conversational delivery. Do not say "bro" in every response, stack slang,
 perform an exaggerated character, or sound like a customer-support script.
 
+The default delivery is a natural, warm male `onyx` voice at **1.25x speed**. Speed is
+requested during synthesis; speaker playback remains 24 kHz to preserve the voice's
+pitch. `BRODI_TTS_SPEED` and `BRODI_TTS_INSTRUCTIONS` customize pace and delivery.
+The voice is AI-generated. Audio starts streaming with the first chunk; fixed replies
+are warmed and cached across restarts. Tasks still running after 250 ms receive one
+"On it." while the action continues, followed by the actual result.
+
 ## Response behavior by situation
 
 | Situation | Target behavior | Example |
@@ -88,14 +95,10 @@ the answer the user asked to hear.
 6. Keep acknowledgments consistent with state: understanding, working, and succeeding
    are different events.
 
-The local wake controller requires a wake phrase or hotkey by default and accepts short follow-ups
-for 20 seconds. A task finishing reopens that window. Valid pending questions and
-confirmations can accept answers within their own timeout. These are runtime behaviors,
-not instructions to repeatedly say the wake phrase.
-
-The default console hears wake phrases locally; idle listening must not trigger a cloud
-conversation. A wake-only turn currently says “Gotcha.” Keep step-by-step technical
-details in the activity feed. Reusing a shortcut does not need an announcement, and a
+Starting the app opens the OpenAI voice session. Commands are accepted immediately;
+?hey bro? and ?yo bro? are optional. No local speech or VAD model is loaded.
+Stop listening through the tray or launcher when finished.
+Keep step-by-step technical details in the activity feed. Reusing a shortcut does not need an announcement, and a
 multi-step task needs at most brief boundary updates. Failed verification must never
 produce “Got it.” Approval questions still name the action and wait for an answer.
 

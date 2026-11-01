@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from . import chrome, commands, os_backend
 from .decisions import ChoiceQuestion, DecisionsClient
 from .models import cache_key, model
+from .profiler import profiled
 
 log = logging.getLogger("brodi.browser")
 
@@ -188,6 +189,7 @@ def _parse(response: Any, cls: type[BaseModel]) -> BaseModel:
     return cls.model_validate_json(getattr(response, "output_text", "") or "{}")
 
 
+@profiled("browser.compose_goal")
 def compose_goal_sync(utterance: str, context: dict[str, Any]) -> ComposedGoal:
     response = _get_client().responses.parse(
         model=os.environ.get("BRODI_FAST_MODEL", FAST_MODEL),
@@ -208,6 +210,7 @@ async def compose_goal(utterance: str, context: dict[str, Any]) -> ComposedGoal:
     return await asyncio.to_thread(compose_goal_sync, utterance, context)
 
 
+@profiled("browser.field_text")
 def _field_text_sync(context: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Return the exact text to type into one field, plus call metadata."""
     started = time.perf_counter()
@@ -434,6 +437,7 @@ OBSERVE_JS = r"""(() => {
 })()"""
 
 
+@profiled("browser.observe")
 def observe(cdp: Any, session_id: str) -> dict[str, Any]:
     result = cdp.call(
         "Runtime.evaluate", session_id=session_id, expression=OBSERVE_JS, returnByValue=True, awaitPromise=False
@@ -472,6 +476,7 @@ def _actions_criteria(actions: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
+@profiled("browser.decide")
 def _decide(decisions: Any, goal: str, page: dict[str, Any], history: list[dict[str, Any]]) -> Any:
     criteria = _actions_criteria(page.get("actions") or [])
     questions: dict[str, Any] = {
@@ -563,6 +568,7 @@ def _fill(cdp: Any, session_id: str, point: dict[str, float], text: str, label: 
             )
 
 
+@profiled("browser.action")
 def _execute(cdp: Any, session_id: str, operation: str, action: dict[str, Any], goal: str) -> str:
     if operation in ("scroll_down", "scroll_up"):
         delta = 600 if operation == "scroll_down" else -600

@@ -22,6 +22,7 @@ from . import os_backend, policy
 from .applescript import MacContext
 from .decisions import ChoiceQuestion, DecisionsClient, PredicateQuestion
 from .models import cache_key, model
+from .profiler import profiled
 from .registry import BUILTIN_PLACEHOLDERS, RISKY_PATTERNS, ArgSpec, PolicyError, Tool, ToolRegistry
 
 log = logging.getLogger("brodi.generator")
@@ -164,6 +165,7 @@ class ToolGenerator:
         self.decisions = decisions
         self.client = client or openai.AsyncOpenAI()
 
+    @profiled("learn")
     async def generate(self, utterance: str, ctx: MacContext) -> tuple[Tool | None, str]:
         """Returns (tool, spoken_message). tool is None when generation failed.
 

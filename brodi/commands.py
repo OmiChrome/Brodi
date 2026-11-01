@@ -81,6 +81,14 @@ def normalize(text: str) -> tuple[str, bool]:
     if match:
         text = text[match.end() :].strip()
     text = re.sub(r"^please\s+|[, ]+please[.!?]*$", "", text, flags=re.I)
+    # Strip only an explicit request prefix followed by a known command verb.
+    # Embedded search/message content must retain the user's literal words.
+    text = re.sub(
+        r"^(?:can|could|would|will) you\s+(?:please\s+)?(?=(?:open|launch|start|go to|navigate to|search|look up|type|write|enter|run)\b)",
+        "",
+        text,
+        flags=re.I,
+    )
     text = re.sub(r"^serach\b", "search", text, flags=re.I)
     return text.strip(), bool(match)
 

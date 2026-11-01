@@ -23,10 +23,12 @@ from typing import Any
 from . import browser_task, commands, os_backend, policy, resolvers
 from .activity import ActivityLog
 from .applescript import ContextPoller, run_applescript
+from .automations import predefined_plan
 from .config import flag
 from .generator import DUPLICATE, ToolGenerator
 from .memory import MemoryStore
 from .multi_step import Plan, PlanRunner, Step, StepResult, cacheable, compose_plan, deterministic_plan, observe_desktop
+from .profiler import profiled, span
 from .registry import Tool, ToolRegistry
 from .router import JevRouter, Route
 
@@ -119,6 +121,7 @@ class DynamicMacAgent:
         self.last_browser: dict[str, Any] | None = None  # goal, url, title, target_id, finished_at
         self.last_args: dict[str, dict[str, str]] = {}  # tool name -> last used arguments (for "send her another")
 
+    @profiled("startup")
     async def start(self) -> None:
         """Warm the context poller (optional; handle() does it lazily)."""
         await self.context.start()
@@ -130,15 +133,18 @@ class DynamicMacAgent:
         await self.router.aclose()
 
     # ----------------------------------------------------------------- public
+    @profiled("turn", root=True)
     async def handle(self, utterance: str) -> Outcome:
         # A second transcript must not race a running browser task or consume its confirmation.
+        queued = time.perf_counter()
         async with self._turn_lock:
             started = time.perf_counter()
             if utterance.strip():
                 self._event("input", utterance)
                 self._event("status", "Understanding your task")
             try:
-                outcome = await self._handle(utterance)
+                with span("dispatch"):
+                    outcome = await self._handle(utterance)
             except Exception:
                 log.exception("command failed")
                 self.pending, self.pending_question, self.state = None, None, State.IDLE
@@ -164,6 +170,8 @@ class DynamicMacAgent:
                 self._event("status", "Thinking of a reply")
             else:
                 self._event("status", "Stopping" if outcome.stop else self.waiting_status())
+            outcome.timings["queue_ms"] = (started - queued) * 1000
+            outcome.timings["total_ms"] = (time.perf_counter() - started) * 1000
             return outcome
 
     def _event(self, kind: str, message: str, **details: Any) -> None:
@@ -259,6 +267,7 @@ class DynamicMacAgent:
                 outcome.speak = "I couldn't verify that step. Please check the app."
         return observation
 
+    @profiled("plan")
     async def _run_plan(self, plan: Plan, utterance: str, *, context: dict | None = None) -> Outcome:
         result = Outcome(route=Route("plan"))
         ctx = await self.context.latest()
@@ -379,7 +388,7 @@ class DynamicMacAgent:
 
         recent = self._recent_browser()
         if not self.pending and not self.pending_question and flag("BRODI_ENABLE_MULTI_STEP"):
-            plan = deterministic_plan(utterance, ctx.running_apps + ctx.installed_apps)
+            plan = predefined_plan(utterance) or deterministic_plan(utterance, ctx.running_apps + ctx.installed_apps)
             if plan:
                 return await self._run_plan(plan, utterance)
         route = None
@@ -656,6 +665,7 @@ class DynamicMacAgent:
         return outcome
 
     # ---------------------------------------------------------------- helpers
+    @profiled("browser")
     async def _execute_browser(self, tool: Tool, args: dict[str, str], outcome: Outcome, utterance: str) -> None:
         refusal = _browser_refusal(utterance, 0.0)
         if refusal:
@@ -884,6 +894,7 @@ class DynamicMacAgent:
                     return spec.name, value
         return None
 
+    @profiled("execute")
     async def _execute(
         self, tool: Tool, args: dict[str, str], outcome: Outcome, prefix: str = "", utterance: str = ""
     ) -> None:
@@ -914,7 +925,7 @@ class DynamicMacAgent:
                 WindowTarget(title=args.get("app", "")),
                 text=args.get("text", ""),
                 append=True,
-                timeout=min(3, self._script_timeout or 3),
+                timeout=min(6, self._script_timeout or 6),
             )
             outcome.executed = result.ok
             outcome.speak = "Got it." if result.ok else result.error
@@ -937,7 +948,7 @@ class DynamicMacAgent:
             result = await execute(
                 operation,
                 WindowTarget(title=args.get("app", "")),
-                timeout=min(3, self._script_timeout or 3),
+                timeout=min(6, self._script_timeout or 6),
                 **({"name": args.get("name", "")} if operation == "click_button" else {}),
             )
             outcome.executed = result.ok

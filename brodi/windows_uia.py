@@ -14,6 +14,7 @@ from typing import Any
 
 from . import policy
 from .os_backend import ScriptResult, is_windows
+from .profiler import profiled
 
 
 class UIAError(RuntimeError):
@@ -288,6 +289,7 @@ def request(operation: str, target: WindowTarget, *, timeout: float = 3.0, **opt
         return ScriptResult(False, "", str(exc))
 
 
+@profiled("os.uia")
 async def execute(operation: str, target: WindowTarget, **options) -> ScriptResult:
     return await asyncio.to_thread(request, operation, target, **options)
 
