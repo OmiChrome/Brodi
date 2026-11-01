@@ -11,13 +11,17 @@ DEFAULT_KEYWORDS = "Brodi,Chrome,Notepad,GitHub,YouTube,Google Keep,Slack"
 
 
 def create_stt(*, model: str | None = None, language: str | None = None):
+    if language not in (None, "en"):
+        raise ValueError("Brodi supports English only (en).")
     selected = model or os.environ.get("BRODI_STT_MODEL", DEFAULT_MODEL)
     silence_ms = int(os.environ.get("BRODI_STT_SILENCE_MS", "250"))
     if not 100 <= silence_ms <= 2000:
         raise ValueError("BRODI_STT_SILENCE_MS must be between 100 and 2000")
     options = {
         "model": selected,
-        "language": language or os.environ.get("BRODI_LANG", "en"),
+        # Product policy, not a user-selectable multilingual hint. Old environment
+        # overrides must not silently re-enable other recognition languages.
+        "language": "en",
         "use_realtime": True,
         "vad": None,
         "turn_detection": {
@@ -27,14 +31,10 @@ def create_stt(*, model: str | None = None, language: str | None = None):
             "silence_duration_ms": silence_ms,
         },
         "noise_reduction_type": "near_field",
-        "prompt": "Desktop assistant commands, application and website names. Preserve dictated text and URLs exactly.",
+        "prompt": "English desktop commands, application and website names. Transcribe English speech without translating other languages. Preserve dictated text and URLs exactly.",
     }
     if selected.startswith(("gpt-transcribe", "gpt-live-transcribe")):
-        languages = [
-            s.strip() for s in os.environ.get("BRODI_STT_LANGUAGES", str(options["language"])).split(",") if s.strip()
-        ]
-        if languages:
-            options["language"] = languages
+        options["language"] = ["en"]
         options["keywords"] = [
             s.strip() for s in os.environ.get("BRODI_STT_KEYWORDS", DEFAULT_KEYWORDS).split(",") if s.strip()
         ]

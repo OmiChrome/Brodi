@@ -117,7 +117,7 @@ class JevRouter:
             criteria[t.name] = t.choice_description()
         criteria[CHAT] = {
             "what": "The user is chatting, asking a general question, or thinking aloud; "
-            "they are not asking the assistant to do something on the Mac.",
+            "they are not asking for a desktop action. Brodi does not answer conversational requests.",
             "examples": ["how are you", "what's the capital of France", "thanks"],
         }
         criteria[STOP] = {
@@ -142,6 +142,7 @@ class JevRouter:
             "intent": ChoiceQuestion(
                 instructions=(
                     f"The user spoke `utterance` to a voice assistant that controls {os_backend.platform_noun()}. "
+                    "Accept English commands only; choose chat for requests in another language. "
                     "`frontmost_app` is the app currently in focus and `running_apps` are open. "
                     "Which tool best fulfils the request? Prefer a tool scoped to `frontmost_app` "
                     "when the request is ambiguous between apps. A website, URL, or web search "

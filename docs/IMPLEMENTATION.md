@@ -40,13 +40,13 @@ This adds a bounded desktop workflow, not a general screenshot/vision agent.
 
 ## Model defaults and caching
 
-Routing, codegen, helpers, planner, chat, and the structured routing fallback default to
+Routing, codegen, helpers, planner, and the structured routing fallback default to
 `gpt-6-luna`. Text-generation calls explicitly use `reasoning.effort=none` by default.
 Decisions keeps its existing endpoint and does not receive a reasoning parameter.
 Speech model defaults are separate and were not changed to a text-only model.
 
 Stable system instructions precede changing user input. Codegen, browser helpers,
-planner, chat, and the Responses fallback use stable `prompt_cache_key` values.
+planner and the Responses fallback use stable `prompt_cache_key` values.
 Dynamic fallback schema construction has a bounded in-process LRU cache. Actual
 server prompt-cache hits remain dependent on prefix length, compatibility, and server
 cache state; setting a cache key does not guarantee a hit.
@@ -61,7 +61,9 @@ Start the app and give a command. `gpt-live-transcribe` recognizes speech throug
 streaming OpenAI transcription connection. A lightweight amplitude detector commits
 turns after 250 ms of quiet; it does not transcribe speech or load a neural model.
 The STT plugin uses this explicit detector and AgentSession uses `vad=None`, preventing
-the SDK's local Silero fallback. Automatic conversational generation waits for task routing.
+the SDK's local Silero fallback. Recognition is pinned to English and the session has
+no conversational generation model. Speech uses fixed English phrases of at most two
+words; full results, failures, and confirmation details remain in the activity feed.
 ?Hey bro? is optional (`BRODI_WAKE_REQUIRED=false`). Stop/Quit closes the voice session.
 The former Vosk runtime, installer, and local inference dependencies have been removed.
 `wake.py` now contains text-only prefix utilities used by tests and smoke probes.
@@ -173,7 +175,7 @@ settings, and is ignored by Git. Copy [config.example.yaml](../config.example.ya
 
 | Key | Default |
 | --- | --- |
-| `BRODI_DECISIONS_MODEL`, `BRODI_CODEGEN_MODEL`, `BRODI_FAST_MODEL`, `BRODI_PLANNER_MODEL`, `BRODI_CHAT_MODEL`, `BRODI_FAST_FALLBACK_MODEL` | `gpt-6-luna` |
+| `BRODI_DECISIONS_MODEL`, `BRODI_CODEGEN_MODEL`, `BRODI_FAST_MODEL`, `BRODI_PLANNER_MODEL`, `BRODI_FAST_FALLBACK_MODEL` | `gpt-6-luna` |
 | `BRODI_REASONING_EFFORT` | `none` |
 | `BRODI_WAKE_WINDOW_S` | `20`; pending answers can extend capture to 60 seconds |
 | `BRODI_TTS_ENABLED` | `true` |

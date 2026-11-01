@@ -70,7 +70,7 @@ class Outcome:
     """What the voice layer should do after an utterance."""
 
     speak: str | None = None  # text to say directly (fast path)
-    handoff_to_llm: bool = False  # let the conversational LLM answer instead
+    handoff_to_llm: bool = False  # Legacy outcome compatibility; voice never generates chat.
     stop: bool = False  # user asked the assistant itself to stop
     route: Route | None = None
     executed: bool = False
@@ -563,7 +563,7 @@ class DynamicMacAgent:
             return await self._run_plan(plan, utterance)
 
         if route.kind == "chat":
-            outcome.handoff_to_llm = True
+            outcome.speak = "Commands only."
             return outcome
 
         if route.kind == "stop":

@@ -51,7 +51,7 @@ def test_accuracy_cloud_model_uses_cloud_endpointing_and_configurable_hints(monk
         try:
             audio = _session_update(engine._opts).model_dump(exclude_none=True)["session"]["audio"]["input"]
             assert audio["transcription"]["model"] == "gpt-transcribe"
-            assert audio["transcription"]["languages"] == ["en", "hi"]
+            assert audio["transcription"]["languages"] == ["en"]
             assert audio["transcription"]["keywords"] == ["Brodi", "GitHub"]
             assert audio["turn_detection"]["silence_duration_ms"] == 400
             assert engine._vad is None
@@ -59,6 +59,27 @@ def test_accuracy_cloud_model_uses_cloud_endpointing_and_configurable_hints(monk
             await engine.aclose()
 
     asyncio.run(scenario())
+
+
+def test_legacy_language_settings_cannot_reenable_multilingual_recognition(monkeypatch):
+    monkeypatch.setenv("BRODI_LANG", "hi")
+    monkeypatch.setenv("BRODI_STT_LANGUAGES", "hi,en")
+
+    async def scenario():
+        engine = create_stt()
+        try:
+            audio = _session_update(engine._opts).model_dump(exclude_none=True)["session"]["audio"]["input"]
+            assert audio["transcription"]["languages"] == ["en"]
+            assert "English" in audio["transcription"]["prompt"]
+        finally:
+            await engine.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_explicit_non_english_language_is_unsupported():
+    with pytest.raises(ValueError, match="English only"):
+        create_stt(language="hi")
 
 
 @pytest.mark.parametrize(

@@ -27,7 +27,7 @@ Opening apps, finding a video, and switching between windows can break your flow
 - **Remembers useful routines.** Eligible successful commands become local shortcuts that can be reused.
 - **Handles a few steps together.** Short workflows have time limits, limited retries, and approval checks.
 - **Shows its work.** A live activity feed displays your request, current action, and result.
-- **Keeps the conversation short.** “Gotcha.” “On it.” “Got it.” More detail when you ask, or when something needs your input.
+- **English commands, brief replies.** Speech is limited to one or two words: “Got it,” “Search terms?” or “Didn't work.” Full results and confirmation details stay in the activity feed.
 
 Voice recognition still uses OpenAI, including when a command takes a local shortcut.
 
@@ -170,7 +170,7 @@ Short desktop plans default to **five action attempts**, **eight seconds per ste
 | Build plans and tools | Responses with structured outputs; configured model: `gpt-6-luna`. |
 | Speak back | `gpt-4o-mini-tts` with the `onyx` voice, at `1.25x` speed by default. |
 
-These are the repository's configured defaults. Model access depends on your API account. The Decisions wrapper supports a structured Responses fallback, and `BRODI_VOICE_MODE=realtime` selects the alternative voice backend.
+These are the repository's configured defaults. Model access depends on your API account. The Decisions wrapper supports a structured Responses fallback. Voice uses an English-only command pipeline with no conversational LLM; `BRODI_VOICE_MODE=pipeline` is the supported mode.
 
 ## Browser access
 

@@ -17,7 +17,7 @@ chmod +x brody
 
 Close the terminal and say **"Hey bro, open GitHub."** The full request is handled
 by the normal tool router. Say **"Hey bro"** on its own to open a 20-second
-conversation window. Follow-up commands and answers work in that window; after
+command window. Follow-up commands and answers work in that window; after
 it expires, say the wake phrase again. Pending confirmations keep their existing
 timeout and policy checks.
 
@@ -33,7 +33,10 @@ running, including before the wake phrase.** This uses the configured cloud
 transcription service, needs internet access, and incurs API usage. Wake gating
 controls which transcribed requests reach the tool router; it is not a local
 wake-word model. Background mode uses the cloud pipeline and retains the 1.25x
-Onyx voice setting.
+Onyx voice setting. Recognition and speech are English-only; acknowledgments,
+clarifications, failures, and startup speech use at most two words. Full results
+and the specific details of actions awaiting confirmation remain in the activity
+feed. "Review action" means inspect those details before answering yes.
 
 - `brodi stop` on Windows or `./brody stop` on macOS stops the supervisor and
   microphone process. Windows tray **Stop assistant** / **Quit Brodi** does the same.
@@ -69,7 +72,7 @@ respected; it is not treated as a crash.
 
 Automated tests cover both platform launch definitions, duplicate-instance locks,
 stale PIDs, crash recovery, retry backoff, explicit stop, wake gating, full-command
-delivery, and conversation-window expiry. macOS microphone permissions and real
+delivery, and command-window expiry. macOS microphone permissions and real
 device behavior must also be checked on a Mac.
 
 Platform references: [Windows login startup](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys)

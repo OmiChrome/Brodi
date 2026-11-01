@@ -39,6 +39,7 @@ def test_pipeline_uses_openai_turns_without_local_models(monkeypatch):
         assert "Brodi" in session.stt._opts.keywords
         assert session.stt._vad.silence_s == 0.25
         assert session.options.preemptive_generation["enabled"] is False
+        assert session.llm is None
         assert session.tts._opts.speed == 1.25
         assert "natural" in session.tts._opts.instructions.lower()
         await session.aclose()
@@ -46,21 +47,12 @@ def test_pipeline_uses_openai_turns_without_local_models(monkeypatch):
     asyncio.run(check())
 
 
-def test_realtime_waits_for_router_before_generation(monkeypatch):
+def test_conversational_realtime_mode_is_no_longer_supported(monkeypatch):
     entrypoint = voice_entrypoint(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(entrypoint, "VOICE_MODE", "realtime")
-    monkeypatch.setenv("BRODI_TTS_SPEED", "1.25")
-
-    async def check():
-        session = entrypoint.build_session()
-        assert session.turn_detection == "realtime_llm"
-        assert session.options.preemptive_generation["enabled"] is False
-        assert session.vad is None
-        assert session.llm._opts.speed == 1.25
-        await session.aclose()
-
-    asyncio.run(check())
+    with pytest.raises(ValueError, match="command-only"):
+        entrypoint.build_session()
 
 
 def test_openai_voice_accepts_a_task_without_wake_phrase(monkeypatch):
@@ -180,3 +172,52 @@ def test_closed_background_session_releases_worker_for_recovery(monkeypatch, bac
     asyncio.run(entrypoint.entrypoint(ctx))
     callbacks["close"](SimpleNamespace())
     assert ctx.shutdown.call_count == int(background)
+
+
+@pytest.mark.parametrize("ending", ["close", "shutdown", "start_failure"])
+def test_console_audio_cleanup_on_every_session_exit(monkeypatch, ending):
+    entrypoint = voice_entrypoint(monkeypatch)
+    monkeypatch.setenv("BRODI_BACKGROUND", "true")
+    monkeypatch.setenv("BRODI_STARTUP_GREETING", "false")
+    events = []
+    callbacks = {}
+
+    def register(name):
+        def decorator(callback):
+            callbacks[name] = callback
+            return callback
+
+        return decorator
+
+    core = Mock(start=AsyncMock(), aclose=AsyncMock(side_effect=lambda: events.append("core-close")))
+    session = SimpleNamespace(on=register, start=AsyncMock())
+    if ending == "start_failure":
+        session.start.side_effect = RuntimeError("startup failed after audio acquisition")
+    monkeypatch.setattr(entrypoint, "DynamicMacAgent", lambda **kw: core)
+    monkeypatch.setattr(entrypoint, "build_session", lambda: session)
+    monkeypatch.setattr(entrypoint, "ActivityLog", Mock)
+    cleanup = Mock(side_effect=lambda sess: events.append("audio-close"))
+    monkeypatch.setattr(entrypoint, "close_console_audio", cleanup)
+    ctx = Mock(room=object(), shutdown=Mock(side_effect=lambda **kw: events.append("shutdown")))
+
+    async def check():
+        if ending == "start_failure":
+            with pytest.raises(RuntimeError, match="startup failed"):
+                await entrypoint.entrypoint(ctx)
+        else:
+            await entrypoint.entrypoint(ctx)
+            if ending == "close":
+                callbacks["close"](SimpleNamespace())
+            else:
+                await ctx.add_shutdown_callback.call_args.args[0]()
+
+    asyncio.run(check())
+    cleanup.assert_called_once_with(session)
+    assert (
+        events
+        == {
+            "close": ["audio-close", "shutdown"],
+            "shutdown": ["audio-close", "core-close"],
+            "start_failure": ["audio-close"],
+        }[ending]
+    )

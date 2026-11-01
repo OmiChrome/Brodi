@@ -2,7 +2,7 @@
 
 ## The one-line pitch
 
-**Your computer has menus. Brodi gives it a conversation: say the task, see it happen.**
+**Your computer has menus. Brodi takes commands: say the task, see it happen.**
 
 ## The 30-second pitch
 

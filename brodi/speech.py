@@ -23,9 +23,9 @@ log = logging.getLogger(__name__)
 SAMPLE_RATE = 24000
 CHUNK_BYTES = 1024  # About 21 ms of PCM16 mono, with no codec or resampling delay.
 MAX_CACHE_BYTES = 2_000_000
-ACKNOWLEDGEMENTS = frozenset({"Got it.", "Gotcha.", "Hey bro, I'm listening.", "Done.", "Cancelled.", "On it."})
+ACKNOWLEDGEMENTS = frozenset({"Got it.", "Gotcha.", "Listening.", "Done.", "Cancelled.", "On it."})
 DEFAULT_INSTRUCTIONS = (
-    "Speak in a natural, warm male voice with clear, conversational delivery. "
+    "Speak English in a natural, warm male voice with clear, relaxed delivery. "
     "Sound like a relaxed, helpful person. Use light, natural intonation and brief pauses. "
     "Do not sound theatrical, robotic, or like an announcer."
 )
@@ -52,7 +52,12 @@ class SpeechSettings:
             model,
             os.environ.get("BRODI_VOICE", "onyx"),
             speech_speed(),
-            "" if model in {"tts-1", "tts-1-hd"} else os.environ.get("BRODI_TTS_INSTRUCTIONS", DEFAULT_INSTRUCTIONS),
+            ""
+            if model in {"tts-1", "tts-1-hd"}
+            else (
+                os.environ.get("BRODI_TTS_INSTRUCTIONS", DEFAULT_INSTRUCTIONS)
+                + " English only. Say only the supplied words; do not add commentary."
+            ),
         )
 
     def request(self, text: str) -> dict:

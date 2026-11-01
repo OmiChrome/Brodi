@@ -142,7 +142,10 @@ turn detection on both supported platforms. The STT plugin receives a small
 No local speech-recognition or neural VAD model is loaded. The router handles the final
 transcript before any chat generation. Wake phrases are optional by default.
 
-`BRODI_VOICE_MODE=realtime` uses the alternative OpenAI Realtime voice backend.
+`BRODI_VOICE_MODE=pipeline` is the only supported voice mode. Recognition is fixed to
+English. The session has no conversational LLM; action routing still uses Decisions.
+`brodi.voice.spoken_reply` selects fixed English feedback of at most two words.
+Full results, errors, and approval details remain in the activity feed.
 Both paths keep script execution in the core and preserve its confirmation state.
 Starting/stopping the app starts/stops cloud audio processing. A voice reply is
 AI-generated. The text CLI calls the same core without a microphone.
@@ -389,14 +392,12 @@ or pricing. The example file is the starting point for local configuration.
 | Setting | Default / role |
 | --- | --- |
 | `OPENAI_API_KEY` | Required for configured OpenAI services. |
-| `BRODI_VOICE_MODE` | `pipeline`; optional `realtime`. |
+| `BRODI_VOICE_MODE` | `pipeline` only; no conversational voice backend. |
 | `BRODI_STT_MODEL` | `gpt-live-transcribe`; `gpt-transcribe` selects cloud server-side endpointing. |
 | `BRODI_STT_SILENCE_MS` | `250` ms before committing a turn. |
-| `BRODI_STT_LANGUAGES`, `BRODI_STT_KEYWORDS` | Language and application-name hints sent to cloud transcription. |
+| `BRODI_STT_KEYWORDS` | Application-name hints; recognition language is fixed to English. |
 | `BRODI_TTS_MODEL` | `gpt-4o-mini-tts`. |
-| `BRODI_CHAT_MODEL` | `gpt-6-luna`. |
-| `BRODI_REALTIME_MODEL` | `gpt-realtime-2.1-mini`. |
-| `BRODI_VOICE`, `BRODI_LANG` | `onyx`, `en`. |
+| `BRODI_VOICE` | `onyx`; English-only speech, at most two words. |
 | `BRODI_WAKE_REQUIRED`, `BRODI_WAKE_WINDOW_S` | `false` (optional transcript gate), `20` seconds. |
 | `BRODI_DECISIONS_MODEL` | `gpt-6-luna`. |
 | `BRODI_FAST_FALLBACK_MODEL` | `gpt-6-luna` for structured routing fallback. |
@@ -473,7 +474,7 @@ the printed action result is a failure, so it is not a reliable task-success exi
 | Test files | Coverage |
 | --- | --- |
 | `test_simple_commands.py`, `test_voice_activation.py` | Everyday utterances, wake windows, missing topics, cancellation, failures, Keep fallback. |
-| `test_voice_session.py` | Installed LiveKit session configuration in pipeline and Realtime modes without provider requests. |
+| `test_voice_session.py`, `test_voice_replies.py` | English command pipeline, no chat model, two-word speech limit, wake gating, and rejection of non-Latin transcripts without provider requests. |
 | `test_router_openai.py`, `test_router_helpers.py`, `test_decisions.py` | Intent/argument routing, candidate spans, question/response adaptation, fallback behavior. |
 | `test_registry.py`, `test_policy.py`, `test_windows_support.py` | Tool rendering, persistence, policy rules, platform-specific scripts/scopes. |
 | `test_generator_openai.py` | Structured proposals, compile/effect/review gates, retry, and deduplication. |
