@@ -1,13 +1,53 @@
 """Current cloud transcription with fast, model-compatible command endpointing."""
 
 import os
+from collections.abc import AsyncIterable, AsyncIterator
 
+from livekit.agents import stt
 from livekit.plugins import openai
 
 from .endpointing import SilenceEndpoint
 
 DEFAULT_MODEL = "gpt-live-transcribe"
 DEFAULT_KEYWORDS = "Brodi,Chrome,Notepad,GitHub,YouTube,Google Keep,Slack"
+
+
+async def complete_transcript_turns(events: AsyncIterable[stt.SpeechEvent]) -> AsyncIterator[stt.SpeechEvent]:
+    """Keep a final transcript actionable even if its earlier end marker was consumed.
+
+    A provider can deliver the final text after LiveKit has already committed an
+    older transcript at the latest end-of-speech marker. Bracket that late text
+    with its original speech times so it gets a turn and stale speech still fails
+    the microphone's mute/unmute boundary. Never end speech that is still active.
+    """
+    speaking = False
+    started_at = ended_at = None
+    kind = stt.SpeechEventType
+    async for event in events:
+        if event.type == kind.START_OF_SPEECH:
+            speaking = True
+            started_at = event.speech_start_time if event.speech_start_time is not None else event.created_at
+            ended_at = None
+        elif event.type == kind.END_OF_SPEECH:
+            speaking = False
+            ended_at = event.speech_end_time if event.speech_end_time is not None else event.created_at
+        elif (
+            event.type == kind.FINAL_TRANSCRIPT
+            and event.alternatives
+            and event.alternatives[0].text.strip()
+            and not speaking
+        ):
+            yield stt.SpeechEvent(
+                kind.START_OF_SPEECH,
+                speech_start_time=started_at if started_at is not None else event.created_at,
+            )
+            yield event
+            yield stt.SpeechEvent(
+                kind.END_OF_SPEECH,
+                speech_end_time=ended_at if ended_at is not None else event.created_at,
+            )
+            continue
+        yield event
 
 
 def create_stt(*, model: str | None = None, language: str | None = None):

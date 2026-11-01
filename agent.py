@@ -15,6 +15,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
+from contextlib import aclosing
 
 from livekit import agents
 from livekit.agents import Agent, AgentServer, AgentSession, StopResponse, get_job_context, llm
@@ -32,7 +33,7 @@ from brodi.console_audio import close_console_audio  # noqa: E402
 from brodi.microphone import MicrophoneControl  # noqa: E402
 from brodi.speech import SpeechSettings, speech_speed  # noqa: E402
 from brodi.transcription import DEFAULT_MODEL as DEFAULT_STT_MODEL  # noqa: E402
-from brodi.transcription import create_stt  # noqa: E402
+from brodi.transcription import complete_transcript_turns, create_stt  # noqa: E402
 from brodi.voice import VoiceGate, english_script, spoken_reply  # noqa: E402
 
 log = logging.getLogger("brodi.voice")
@@ -62,6 +63,11 @@ class BrodiAgent(Agent):
             required=flag("BRODI_WAKE_REQUIRED", default=False),
             window_s=float(os.environ.get("BRODI_WAKE_WINDOW_S", "20")),
         )
+
+    async def stt_node(self, audio, model_settings):
+        async with aclosing(Agent.default.stt_node(self, audio, model_settings)) as events:
+            async for event in complete_transcript_turns(events):
+                yield event
 
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
         if self.microphone is not None and not self.microphone.accepts(new_message):
