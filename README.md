@@ -1,13 +1,13 @@
-<p align="center">
-  <img src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped together in a warm painterly illustration" width="240" />
-</p>
+<img align="right" src="assets/branding/brodi-logo.png" alt="Brodi logo: two hands clasped together in a warm painterly illustration" width="240" />
 
-<h1 align="center">Brodi</h1>
-<p align="center"><strong>Your bro for getting things done.</strong><br />Voice-controlled desktop assistant for Windows 11 and macOS.</p>
+<h1 align="left">Brodi</h1>
+<p align="left"><strong>Your bro for getting things done.</strong><br />Voice-controlled desktop assistant for Windows 11 and macOS.</p>
 
 A hands-free AI assistant that lets you control your computer and browser using natural voice
 commands. Powered by OpenAI GPT-Live and Decisions API to understand your intent, choose the
 right actions, and get things done.
+
+<br clear="right" />
 
 > **Experimental. Not for production.** This prototype lets a language model run scripts
 > and click around a browser on your machine. An early version, asked to "clean up my
