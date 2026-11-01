@@ -70,9 +70,10 @@ def test_mac_exact_shortcut_held_key_and_release(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_helper_protocol_toggles_and_reports_death(monkeypatch):
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+async def test_helper_protocol_toggles_and_reports_death(monkeypatch, newline):
     lines = asyncio.StreamReader()
-    lines.feed_data(b"ready\n")
+    lines.feed_data(b"ready" + newline)
     process = SimpleNamespace(stdout=lines, stdin=Mock(), wait=Mock())
 
     async def wait():
@@ -89,7 +90,7 @@ async def test_helper_protocol_toggles_and_reports_death(monkeypatch):
     toggle, error = Mock(), Mock()
     listener = hotkey.GlobalMicHotkey(toggle, error)
     await listener.start()
-    lines.feed_data(b"toggle\ntoggle\n")
+    lines.feed_data((b"toggle" + newline) * 2)
     lines.feed_eof()
     await listener.reader
     assert toggle.call_count == 2

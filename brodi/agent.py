@@ -22,6 +22,7 @@ from typing import Any
 
 from . import browser_task, commands, os_backend, policy, resolvers
 from .activity import ActivityLog
+from .api_errors import report_api_error
 from .applescript import ContextPoller, run_applescript
 from .automations import predefined_plan
 from .calculator import CalculatorSession, mac_script, prepare
@@ -158,12 +159,13 @@ class DynamicMacAgent:
             try:
                 with span("dispatch"):
                     outcome = await self._handle(utterance)
-            except Exception:
+            except Exception as exc:
                 log.exception("command failed")
                 self.pending, self.pending_question, self.state = None, None, State.IDLE
                 self._pending_plan = None
                 outcome = Outcome(speak="That didn't work. Please try again.")
-                self._event("error", "The task failed unexpectedly; ready to try again")
+                if not report_api_error(exc, self.activity):
+                    self._event("error", "The task failed unexpectedly; ready to try again")
             if outcome.speak:
                 self._event("output", outcome.speak)
             if outcome.executed:

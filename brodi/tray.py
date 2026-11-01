@@ -374,6 +374,10 @@ class TrayApp:
                 getattr(self.controller, action)()
             return True
         except Exception as exc:
+            from .api_errors import classify_api_error, notify_api_error
+
+            if code := classify_api_error(exc):
+                notify_api_error(code)
             self.error = short_text(exc)
             log.error("Tray action %s failed: %s", action, self.error)
             # The persistent menu row still explains errors if notifications are unavailable.

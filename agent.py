@@ -27,6 +27,7 @@ load_environment()
 from brodi import policy  # noqa: E402
 from brodi.activity import ActivityLog  # noqa: E402
 from brodi.agent import PENDING_TTL_S, DynamicMacAgent  # noqa: E402
+from brodi.api_errors import report_api_error  # noqa: E402
 from brodi.console_audio import close_console_audio  # noqa: E402
 from brodi.microphone import MicrophoneControl  # noqa: E402
 from brodi.speech import SpeechSettings, speech_speed  # noqa: E402
@@ -160,14 +161,17 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         except RuntimeError:
             pass
 
-    mac = DynamicMacAgent(
-        enable_learning=flag("BRODI_LEARN"),
-        on_learning=_filler,
-        activity=activity,
-    )
-    await mac.start()
-
-    session = build_session()
+    try:
+        mac = DynamicMacAgent(
+            enable_learning=flag("BRODI_LEARN"),
+            on_learning=_filler,
+            activity=activity,
+        )
+        await mac.start()
+        session = build_session()
+    except Exception as exc:
+        report_api_error(exc, activity)
+        raise
 
     def _command_started() -> None:
         nonlocal progress_spoken
@@ -201,6 +205,8 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     @session.on("error")
     def _session_error(event) -> None:
         error = getattr(event, "error", None)
+        if report_api_error(error, activity):
+            return
         activity.emit(
             "error",
             "Voice connection needs attention",
@@ -234,7 +240,8 @@ async def entrypoint(ctx: agents.JobContext) -> None:
             microphone.attach()
     except Exception as exc:
         close_console_audio(session)
-        activity.emit("error", "Could not start the voice session", reason=str(exc))
+        if not report_api_error(exc, activity):
+            activity.emit("error", "Could not start the voice session", reason=str(exc))
         raise
     required = voice_agent.activation.required
     if flag("BRODI_STARTUP_GREETING", default=True):

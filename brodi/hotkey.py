@@ -142,7 +142,7 @@ class GlobalMicHotkey:
         )
         try:
             line = await asyncio.wait_for(self.process.stdout.readline(), timeout=5)
-            if line != b"ready\n":
+            if line.rstrip(b"\r\n") != b"ready":
                 raise RuntimeError(
                     line.decode(errors="replace").removeprefix("error:").strip()
                     or "Microphone shortcut helper did not start"
@@ -154,7 +154,7 @@ class GlobalMicHotkey:
 
     async def _read(self):
         while line := await self.process.stdout.readline():
-            if line == b"toggle\n":
+            if line.rstrip(b"\r\n") == b"toggle":
                 self.on_toggle()
             elif line.startswith(b"error:"):
                 self.on_error(line.decode(errors="replace").removeprefix("error:").strip())

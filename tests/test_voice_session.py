@@ -55,6 +55,40 @@ def test_conversational_realtime_mode_is_no_longer_supported(monkeypatch):
         entrypoint.build_session()
 
 
+@pytest.mark.parametrize("stage", ["event", "start", "build"])
+def test_api_error_notice_on_voice_failures(monkeypatch, stage):
+    entrypoint = voice_entrypoint(monkeypatch)
+    monkeypatch.setenv("BRODI_STARTUP_GREETING", "false")
+    callbacks = {}
+
+    def register(name):
+        def decorator(callback):
+            callbacks[name] = callback
+            return callback
+
+        return decorator
+
+    failure = RuntimeError("provider rejected the key")
+    core = Mock(start=AsyncMock(), aclose=AsyncMock())
+    session = SimpleNamespace(on=register, start=AsyncMock())
+    if stage == "start":
+        session.start.side_effect = failure
+    build = Mock(return_value=session, side_effect=failure if stage == "build" else None)
+    reporter = Mock(return_value=True)
+    activity = Mock()
+    monkeypatch.setattr(entrypoint, "DynamicMacAgent", lambda **kw: core)
+    monkeypatch.setattr(entrypoint, "build_session", build)
+    monkeypatch.setattr(entrypoint, "report_api_error", reporter)
+    monkeypatch.setattr(entrypoint, "ActivityLog", lambda: activity)
+    if stage == "event":
+        asyncio.run(entrypoint.entrypoint(Mock(room=object())))
+        callbacks["error"](SimpleNamespace(error=failure))
+    else:
+        with pytest.raises(RuntimeError, match="provider rejected"):
+            asyncio.run(entrypoint.entrypoint(Mock(room=object())))
+    reporter.assert_called_once_with(failure, activity)
+
+
 def test_openai_voice_accepts_a_task_without_wake_phrase(monkeypatch):
     from brodi.agent import Outcome
 
